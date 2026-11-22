@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { readdirSync, statSync, existsSync, realpathSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, existsSync, realpathSync } from 'node:fs';
 import { homedir, release } from 'node:os';
 import { join, basename, dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -12,7 +12,8 @@ import { createSqliteSnapshotCache } from './sqlite_cache.mjs';
 import { startLsWatchdog } from './ls_watchdog.mjs';
 import { startSelfReloadWatcher } from './reload.mjs';
 import { summarizeSubagentExecution, summarizeSubagentTurnMetrics, summarizeTurnMetrics } from './turn_metrics.mjs';
-import { installAsyncHostRoutes, installEpipeGuard } from './host_bridge.mjs';
+import { installAsyncHostRoutes, installEpipeGuard, runAgentApi } from './host_bridge.mjs';
+import { createDesktopPet, isConversationId, isProjectId } from './desktop_pet.mjs';
 import { createCdpNoticeManager } from './cdp_notice.mjs';
 import { createCloudTelemetryStore } from './cloud_telemetry.mjs';
 import { createUsageHistory } from './usage_history.mjs';
@@ -27,7 +28,7 @@ const settingsStore = createSettingsStore();
 const checkVersion = createVersionChecker({ getPrefs: () => settingsStore.read() });
 const updatePlugin = createPluginUpdater({ sidecarDirectory: dirname(fileURLToPath(import.meta.url)), checkVersion });
 const cloudTelemetryStore = createCloudTelemetryStore();
-const PANEL_VERSION = 166;
+const PANEL_VERSION = 167;
 const diagnosticSystem = [process.platform, release().match(/^\d+(?:\.\d+)*/)?.[0]].filter(Boolean).join(' ');
 const presentation = createPresentation();
 export function getNotifyText(shortcutState, prefs) {
@@ -50,6 +51,7 @@ function conversationDirectories(dataDir) {
     join(homedir(), '.gemini', product, 'conversations'));
 }
 const conversationDirs = conversationDirectories(process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR);
+const petSupported = process.platform === 'win32' && basename(dirname(conversationDirs[0])).toLowerCase() === 'antigravity';
 
 const NO_QUOTA = { quotaGroups: [], cloudPaygo: false };
 let cachedQuota = null;
@@ -375,7 +377,9 @@ async function readSelectedConversation(convId, allowLatest, subagentOnly = fals
   }
   touchActiveConversation(basename(dbPath, '.db'));
 
-  const snapshot = conversationCache.read(dbPath, prefs.showTurnMetrics);
+  const snapshot = conversationCache.read(dbPath, wantsTurnMetrics(prefs));
+  // Desktop pet reads the same cache. Keep turn metrics hidden in the capsule
+  // payload when their own setting is turned off.
   // 'side': a full conversation shown in a side chat tab. Render it through the
   // child-strip path, mounted inside the native footer (native model picker stays).
   const side = subagentOnly === 'side';
@@ -393,6 +397,7 @@ async function readSelectedConversation(convId, allowLatest, subagentOnly = fals
     health,
     uiVersion: PANEL_VERSION,
     ...snapshot,
+    ...(!prefs.showTurnMetrics && { turnMetrics: null }),
     ...(showEstimate && { contextEstimate: estimate }),
     ...(side && { subagent: { model: '', side: true } }),
     prefs,
@@ -401,6 +406,7 @@ async function readSelectedConversation(convId, allowLatest, subagentOnly = fals
 }
 
 const conversationCache = createSqliteSnapshotCache(readConversationSnapshot);
+const wantsTurnMetrics = prefs => prefs.showTurnMetrics || (petSupported && prefs.showDesktopPet);
 
 function visibleLocalRequestError(request, steps) {
   const error = request?.requestError ?? classifyRequestError();
@@ -1806,6 +1812,7 @@ const UI_HTML = `<!DOCTYPE html>
     ${renderCheckCard({ id: 'setting-request-errors', key: 'showRequestErrors', checked: true })}
     ${renderCheckCard({ id: 'setting-notify-cdp-restart', helpId: 'notify-cdp-restart', key: 'notifyCdpRestart', tip: 'cdpRestartPreview', checked: DEFAULT_SETTINGS.notifyCdpRestart })}
     ${renderCheckCard({ id: 'setting-side-chat-capsules', helpId: 'side-chat-capsules', key: 'showSideChatCapsules', tip: 'sideChatCapsulesTip', checked: DEFAULT_SETTINGS.showSideChatCapsules })}
+    ${petSupported ? renderCheckCard({ id: 'setting-desktop-pet', helpId: 'desktop-pet', key: 'showDesktopPet', tip: 'desktopPetTip', checked: false }) : ''}
     <div class="setting-card setting-speed-pair metric-setting" data-setting-card="showSpeed" data-checked="true" data-speed-fx="false">
       <div class="setting-head setting-pair-head">
         <div class="setting-pair-item">
@@ -3036,7 +3043,8 @@ const UI_HTML = `<!DOCTYPE html>
       // The usage history keeps its own, slower pace and never holds up this poll.
       void refreshUsage();
       try {
-        const res = await postApi('/api/context', { conversationId: convId }, AbortSignal.timeout(6000), isCurrent);
+        const projectId = window.sidecar?.projectId ?? new URLSearchParams(location.search).get('projectId');
+        const res = await postApi('/api/context', { conversationId: convId, projectId }, AbortSignal.timeout(6000), isCurrent);
         if (!res) return;
         const d = await res.json();
         if (!isCurrent() || panelLocked) return;
@@ -3270,6 +3278,45 @@ const isMain = (() => {
 
 if (isMain) installEpipeGuard();
 let deckInjector = null;
+let desktopPet = null;
+let petPanelContext = null;
+let petMetadataLookup = null;
+
+function rememberPetPanelContext(conversationId, projectId) {
+  const previous = petPanelContext;
+  const visibleConversation = isConversationId(conversationId) ? conversationId : '';
+  const directProject = isProjectId(projectId) ? projectId : '';
+  petPanelContext = {
+    conversationId: visibleConversation,
+    projectId: directProject || (previous?.conversationId === visibleConversation ? previous.projectId : ''),
+    seenAt: Date.now(),
+  };
+  if (directProject || !visibleConversation || petPanelContext.projectId || !settingsStore.read().showDesktopPet) return;
+  if (petMetadataLookup && (petMetadataLookup.busy ||
+    (petMetadataLookup.id === visibleConversation && Date.now() - petMetadataLookup.startedAt < 15_000))) return;
+  const lookup = petMetadataLookup = { id: visibleConversation, busy: true, startedAt: Date.now() };
+  void runAgentApi(['get-conversation-metadata', visibleConversation], { timeout: 5000 }).then(result => {
+    const project = [result?.projectId, result?.project_id, result?.metadata?.projectId,
+      result?.metadata?.project_id, result?.project?.id].find(isProjectId);
+    if (project && petPanelContext?.conversationId === visibleConversation && !petPanelContext.projectId) {
+      petPanelContext.projectId = project;
+    }
+  }).catch(() => {}).finally(() => { lookup.busy = false; });
+}
+
+function getPetContext() {
+  const panel = petPanelContext;
+  const conversationId = panel && Date.now() - panel.seenAt < 5000
+    ? panel.conversationId : lastDeckConvId ?? panel?.conversationId ?? '';
+  let projectId = panel?.projectId || process.env.ANTIGRAVITY_PROJECT_ID;
+  if (!isProjectId(projectId)) {
+    try {
+      const config = JSON.parse(readFileSync(join(homedir(), '.gemini', 'config', 'config.json'), 'utf8').replace(/^\uFEFF/, ''));
+      projectId = config.sidecars?.['agy-capsule/agy_capsule']?.projectId;
+    } catch {}
+  }
+  return { conversationId, projectId };
+}
 export async function startPanel(loadSdk = () => import('sidecar_sdk'), env = process.env, notices = cdpNotice) {
   // The SDK skips authentication for GET, and for every method without a UI token.
   // Do not start its listener (including built-in host routes) in the latter case.
@@ -3290,6 +3337,7 @@ export async function startPanel(loadSdk = () => import('sidecar_sdk'), env = pr
     // Full View changes the sidecar's conversation; opening a child tab
     // beside its parent does not. Neither should depend on the last CDP footer.
     const conversationId = data?.conversationId ?? app.config?.conversationId ?? '';
+    if (desktopPet) rememberPetPanelContext(conversationId, data?.projectId || app.config?.projectId);
     return {
       ...await readSelectedConversation(conversationId, false, false, deckInjector?.contextEstimate(conversationId)),
       deckCdp,
@@ -3298,7 +3346,11 @@ export async function startPanel(loadSdk = () => import('sidecar_sdk'), env = pr
     };
   }, 'POST');
   app.api('/api/usage', (data) => inspectUsage(settingsStore.read(), data?.conversationId ?? app.config?.conversationId ?? ''), 'POST');
-  app.api('/api/settings', (data) => settingsStore.update(data), 'POST');
+  app.api('/api/settings', (data) => {
+    const prefs = settingsStore.update(data);
+    desktopPet?.sync();
+    return prefs;
+  }, 'POST');
   app.api(VERSION_ROUTE, data => checkVersion(data?.mode), 'POST');
   app.api(UPDATE_ROUTE, data => updatePlugin(data?.version), 'POST');
   app.api('/api/fix-cdp-shortcut', () => cdpNotice.fixShortcuts(), 'POST');
@@ -3316,12 +3368,31 @@ if (isMain && (process.env.ANTIGRAVITY_LS_ADDRESS || process.env.ANTIGRAVITY_SID
     onEffortSettingsPatch: patch => settingsStore.update(patch),
     sideChatEnabled: () => settingsStore.read().showSideChatCapsules === true,
   });
+  let petTimer;
+  if (petSupported && process.env.ANTIGRAVITY_SIDECAR_WEB_PORT && process.env.ANTIGRAVITY_SIDECAR_UI_TOKEN?.trim()) {
+    desktopPet = createDesktopPet({
+      getPrefs: () => settingsStore.read(),
+      getContext: getPetContext,
+      getTurn: id => {
+        const path = resolveConversationDb(id, false);
+        return path ? conversationCache.read(path, true) : cloudTelemetryStore.read(id, true);
+      },
+      newConversation: (message, projectId) => runAgentApi(['new-conversation', '--', message], { projectId, timeout: 15_000 }),
+      openConversation: injector.openConversation,
+      disable: () => settingsStore.update({ showDesktopPet: false }),
+    });
+    petTimer = setInterval(() => desktopPet.sync(), 1000);
+    petTimer.unref();
+    desktopPet.sync();
+  }
   let stopping = false;
   const shutdown = async (reason) => {
     if (stopping) return;
     stopping = true;
     stopLsWatchdog();
     stopWatching();
+    clearInterval(petTimer);
+    desktopPet?.stop();
     console.log('[agy-capsule] restarting/stopping:', reason);
     try { await injector.stop(); }
     finally { process.exit(0); }

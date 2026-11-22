@@ -7,7 +7,7 @@ export function startSelfReloadWatcher(directory, onChanged, { pollMs = 1000, se
   const snapshot = () => {
     try {
       if (existsSync(join(pluginDirectory, '.update-in-progress'))) return null;
-      const files = readdirSync(directory).filter(name => /\.(mjs|js|json|html|css)$/.test(name)).sort();
+      const files = readdirSync(directory).filter(name => /\.(mjs|js|json|html|css|ps1)$/.test(name)).sort();
       return JSON.stringify([...files.map(name => join(directory, name)), join(pluginDirectory, 'plugin.json')].map(file => {
         const stat = statSync(file);
         return [file, stat.mtimeMs, stat.size];

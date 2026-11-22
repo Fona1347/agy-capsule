@@ -227,7 +227,10 @@ test('sidebar settings use flat dividers, same-row appearance blocks, refined ca
   assert.doesNotMatch(UI_HTML, /setting-show-steps|data-generation-row="steps"|data-settings-scope="compaction"/);
   assert.ok(!UI_HTML.includes('data-i18n="previewKeepZero"'));
   assert.ok(!UI_HTML.includes('pv-err-pop'));
+  const petCard = UI_HTML.includes('data-setting-card="showDesktopPet"');
+  if (process.platform !== 'win32') assert.equal(petCard, false);
   for (const key of Object.keys(DEFAULT_SETTINGS)) {
+    if (key === 'showDesktopPet' && !petCard) continue;
     if (key === 'codexTheme') continue; // Codex's Orchestrator follow style is only configurable from the right-click menu.
     assert.ok(['data-setting-card', 'data-pick-setting', 'data-toggle-setting', 'data-order-setting', 'data-input-setting'].some(attr => UI_HTML.includes(`${attr}="${key}"`)), `missing setting item for ${key}`);
   }
@@ -249,7 +252,7 @@ test('sidebar settings use flat dividers, same-row appearance blocks, refined ca
   assert.ok(UI_HTML.includes('id="help-language-scope"') && UI_HTML.includes('id="help-notify-cdp-restart"') && UI_HTML.includes('id="help-speed-pair"') && UI_HTML.includes('id="help-request-metrics"') && UI_HTML.includes('id="help-turn-metrics"') && UI_HTML.includes('id="help-usage-scope"'));
   assert.ok(!UI_HTML.includes('class="settings-note"'));
   assert.match(settingsHtml, /data-setting-card="language"[\s\S]*?class="setting-help-dot"[\s\S]*?id="help-language-scope"[^>]*data-i18n="languageScopeNote"/);
-  assert.equal((settingsHtml.match(/class="setting-help-dot"/g) || []).length, 9, 'includes the native model capsule help dot');
+  assert.equal((settingsHtml.match(/class="setting-help-dot"/g) || []).length, petCard ? 10 : 9, 'includes the native model capsule help dot');
   assert.ok(UI_HTML.includes('data-preview-group="turn"') && !UI_HTML.includes('data-preview-group="request"'));
   assert.equal(ui.dictionaries.en.showRequestMetrics, 'Last request');
   assert.equal(ui.dictionaries.en.turnMetrics, 'Last turn');

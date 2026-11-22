@@ -3,14 +3,14 @@ import { execFile } from 'node:child_process';
 // sidecar_sdk runs `agentapi` with execFileSync for its built-in /_sidecar/* routes.
 // The panel preload calls get-conversation-metadata on every conversation switch,
 // which froze this process (and the deck injector) for ~20 s. Same commands, async.
-export function runAgentApi(args, { projectId, env = process.env, execFileImpl = execFile } = {}) {
+export function runAgentApi(args, { projectId, timeout, env = process.env, execFileImpl = execFile } = {}) {
   const childEnv = { ...env };
   if (projectId) childEnv.ANTIGRAVITY_PROJECT_ID = projectId;
   const exe = env.ANTIGRAVITY_AGENTAPI_EXE;
   const file = exe || 'agentapi';
   const execArgs = exe ? ['agentapi', ...args] : args;
   return new Promise((resolve, reject) => {
-    execFileImpl(file, execArgs, { encoding: 'utf-8', env: childEnv, windowsHide: true, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
+    execFileImpl(file, execArgs, { encoding: 'utf-8', env: childEnv, windowsHide: true, maxBuffer: 16 * 1024 * 1024, ...(timeout && { timeout }) }, (err, stdout) => {
       if (err) { reject(err); return; }
       try {
         const out = String(stdout ?? '').trim();

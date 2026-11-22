@@ -45,6 +45,7 @@ test('CDP installs code once, skips unchanged payloads, updates on navigation, a
   let sideChat = false;
   const readStates = [];
   const connections = [];
+  const navigation = [];
   const origin = 'https://127.0.0.1:5351';
   const emitContext = (socket, origin, uniqueId) => socket.onmessage({ data: JSON.stringify({
     method: 'Runtime.executionContextCreated', params: { context: { origin, uniqueId, auxData: { isDefault: true, frameId: 'frame' } } },
@@ -54,13 +55,17 @@ test('CDP installs code once, skips unchanged payloads, updates on navigation, a
     send(raw) {
       const { id, method, params: { expression, uniqueContextId } } = JSON.parse(raw);
       if (method !== 'Runtime.evaluate') {
-        const result = method === 'Page.getFrameTree' ? { frameTree: { frame: { id: 'frame' } } } : {};
+        const result = method === 'Page.getFrameTree' ? { frameTree: { frame: { id: 'frame' } } }
+          : method === 'Browser.getWindowForTarget' ? { windowId: 3, bounds: { windowState: 'minimized' } } : {};
+        if (['Page.bringToFront', 'Browser.setWindowBounds'].includes(method)) navigation.push(method);
         if (method === 'Runtime.enable') emitContext(this, origin, 'document-1');
         this.onmessage({ data: JSON.stringify({ id, result }) }); return;
       }
       assert.equal(uniqueContextId, 'document-1');
       let value;
-      if (expression.includes('function installRuntime')) { injections++; installed = allowInstall; value = installed; }
+      if (expression === 'location.pathname') value = path;
+      else if (expression.includes('location.assign(')) { navigation.push(expression); value = true; }
+      else if (expression.includes('function installRuntime')) { injections++; installed = allowInstall; value = installed; }
       else if (expression.includes('.readState(') && readStates.push(expression)) value = installed ? { owner, hash, path, hasFooter, ...modelStates[this.id] } : null;
       else if (expression.includes('.apply(')) { pushes++; value = allowApply; }
       else if (expression.includes('.applySubagent(')) { childPushes.push(expression); value = true; }
@@ -94,7 +99,15 @@ test('CDP installs code once, skips unchanged payloads, updates on navigation, a
     await injector.tick(); assert.equal(injections, 1); assert.equal(pushes, 1); assert.equal(lists, 1);
     const count = inspections; hasFooter = false; await injector.tick(); assert.equal(inspections, count, 'Non-composer windows must not change the selected conversation'); hasFooter = true;
     next = { contextTokens: 200 }; await injector.tick(); assert.equal(pushes, 2);
-    path = '/c/00000000-0000-0000-0000-000000000000'; await injector.tick(); assert.equal(pushes, 3);
+    const existing = '00000000-0000-0000-0000-000000000000';
+    const newChat = '00400000-0000-0000-0000-000000000001';
+    path = '/c/' + existing; await injector.tick(); assert.equal(pushes, 3);
+    assert.equal(await injector.openConversation('../not-a-chat'), false);
+    assert.equal(await injector.openConversation(existing), true);
+    assert.deepEqual(navigation.splice(0), ['Browser.setWindowBounds', 'Page.bringToFront']);
+    assert.equal(await injector.openConversation(newChat, existing), true);
+    assert.match(navigation.at(-1), /location\.assign\("https:\/\/127\.0\.0\.1:5351\/c\/00400000-/);
+
     assert.equal(connections.length, 1, 'only the verified composer and its own debugger socket are eligible');
     next = { contextTokens: 300 }; navigateWhileReading = true;
     await injector.tick(); assert.equal(pushes, 3, 'navigation while inspecting must discard the pending payload');

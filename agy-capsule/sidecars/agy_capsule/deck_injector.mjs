@@ -1,5 +1,6 @@
 // Deck injector: mounts a compact metrics strip into the Antigravity composer
 // footer (next to the model selector) via the local DevTools (CDP) endpoint.
+import { isConversationId } from './desktop_pet.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -1975,6 +1976,38 @@ export function startDeckInjector(inspect, options = {}) {
       return cachedPages;
     } catch (error) { discovery = 'unreachable'; logOnce('CDP list failed: ' + error.message); return []; }
   };
+  const openConversation = async (id, anchor) => {
+    if (stopped || !isConversationId(id)) return false;
+    const entries = [...sockets.values()].filter(entry => entry.lastPath && entry.context && !entry.closed);
+    const onChat = (entry, conversationId) => entry.lastPath.endsWith('/c/' + conversationId);
+    const entry = entries.find(item => onChat(item, id)) || entries.find(item => anchor && onChat(item, anchor)) ||
+      (entries.length === 1 ? entries[0] : null);
+    if (!entry) return false;
+    const context = entry.context;
+    const path = await evaluate(entry, context, 'location.pathname');
+    if (path !== entry.lastPath || context !== entry.context) return false;
+    const route = path.match(/^(.*\/c\/)[a-f\d-]{36}$/i)?.[1] ?? (path === '/' ? '/c/' : null);
+    if (!route) return false;
+
+    // Some Electron builds expose native window bounds through CDP. Restore a
+    // minimized window when available, and ask the verified composer to focus.
+    const window = await command(entry, 'Browser.getWindowForTarget', {});
+    if (window?.bounds?.windowState === 'minimized') {
+      await command(entry, 'Browser.setWindowBounds', { windowId: window.windowId, bounds: { windowState: 'normal' } });
+    }
+    if (stopped || context !== entry.context) return false;
+    const destination = route + id;
+    const url = new URL(destination, entry.origin);
+    if (url.origin !== entry.origin || url.pathname !== destination) return false;
+    const activation = await command(entry, 'Page.bringToFront', {});
+    if (stopped || !activation || context !== entry.context) return false;
+    if (path === destination) return true;
+    return await evaluate(entry, context, `(() => {
+      if (location.origin !== ${JSON.stringify(entry.origin)} || location.pathname !== ${JSON.stringify(path)}) return false;
+      location.assign(${JSON.stringify(url.href)});
+      return true;
+    })()`) === true;
+  };
   const stop = async () => {
     if (stopped) return;
     stopped = true;
@@ -2099,6 +2132,6 @@ export function startDeckInjector(inspect, options = {}) {
   };
   const timer = setInterval(tick, INTERVAL_MS);
   console.log('[deck] injector started, port file:', options.portFile || PORT_FILE);
-  return { tick, stop, status: () => cdpState, models: conversationId => availableModels.get(conversationId) ?? [],
+  return { tick, stop, openConversation, status: () => cdpState, models: conversationId => availableModels.get(conversationId) ?? [],
     contextEstimate: conversationId => availableEstimates.get(conversationId) ?? null };
 }
