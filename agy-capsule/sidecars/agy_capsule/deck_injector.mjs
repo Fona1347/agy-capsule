@@ -78,7 +78,7 @@ export function readCompactionEstimate(footer, conversationId) {
 
 // The child transcript and the child composer share a wrapper. The composer
 // wrapper survives even when the host omits the input or native model button.
-function findSubagentAnchors(footer) {
+function findSubagentAnchors(footer, includeSideChat = false) {
   const anchors = new Map();
   const visible = el => {
     if (!el?.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return false;
@@ -86,10 +86,16 @@ function findSubagentAnchors(footer) {
     return Math.min(r.right, innerWidth) > Math.max(r.left, 0) && Math.min(r.bottom, innerHeight) > Math.max(r.top, 0);
   };
   const add = (el, id) => { if (id && visible(el)) anchors.set(el, id); };
-  for (const transcript of document.querySelectorAll('[data-testid="subagent-tab-conversation"][data-cascade-id]')) {
+  // Side chat tabs host a full (non-subagent) conversation with the same
+  // transcript + composer sibling layout as subagent tabs.
+  const mainId = conversationIdOf(footer?.closest('[data-testid="conversation-view"]'));
+  const transcripts = '[data-testid="subagent-tab-conversation"][data-cascade-id]'
+    + (includeSideChat ? ', [data-testid="side-question-tab-conversation"][data-cascade-id]' : '');
+  for (const transcript of document.querySelectorAll(transcripts)) {
     const composer = transcript.nextElementSibling;
     const id = conversationIdOf(transcript);
-    if (id && composer?.matches('[data-testid="subagent-tab-composer"]') && visible(transcript)) {
+    const sideChat = transcript.matches('[data-testid="side-question-tab-conversation"]');
+    if (id && !(sideChat && id === mainId) && composer?.matches('[data-testid="subagent-tab-composer"], [data-testid="side-question-tab-composer"]') && visible(transcript)) {
       // The wrapper can have zero height before we add the strip.
       if (composer.checkVisibility({ opacityProperty: true, visibilityProperty: true })) anchors.set(composer, id);
     }
@@ -112,7 +118,10 @@ function pageMount(d, childAnchor = null) {
     window.__agyCapsuleCleanup?.();
     return 'no-footer';
   }
-  const childSidebar = childAnchor?.matches('[data-testid="subagent-tab-composer"]');
+  const childSidebar = childAnchor?.matches('[data-testid="subagent-tab-composer"], [data-testid="side-question-tab-composer"]');
+  // Side chat: sit inside the native footer next to the model button, like the main composer.
+  const sideAnchor = !!childAnchor?.matches('[data-testid="side-question-tab-composer"]');
+  const sideFooter = sideAnchor ? childAnchor.querySelector('.agy-composer-footer > div:first-child') : null;
   const presentation = globalThis.__agyCapsulePresentation;
 
   const clearFooterLayout = (node) => {
@@ -139,7 +148,7 @@ function pageMount(d, childAnchor = null) {
   const legacy = document.getElementById('deck-metrics-strip');
   if (legacy && !childAnchor) { release(legacy); legacy.remove(); }
   let host = childAnchor
-    ? childAnchor.querySelector(':scope > [data-agy-capsule-subagent]')
+    ? childAnchor.querySelector(sideAnchor ? '[data-agy-capsule-subagent]' : ':scope > [data-agy-capsule-subagent]')
     : document.getElementById('agy-capsule-host');
   let root = host?.shadowRoot?.getElementById('deck-metrics-strip');
   if (!root) {
@@ -1027,7 +1036,11 @@ function pageMount(d, childAnchor = null) {
     root.querySelector('[data-el="rowCacheHit"]').addEventListener('mouseenter', () => root._refreshCacheTooltip?.());
   }
 
-  if (!footerLeft.contains(host)) {
+  if (sideAnchor) {
+    const mountAt = sideFooter || footerLeft;
+    if (host.parentElement !== mountAt) mountAt.appendChild(host);
+    if (sideFooter) host.style.cssText = host.hidden ? 'display:none' : 'display:contents';
+  } else if (!footerLeft.contains(host)) {
     footerLeft.appendChild(host);
   }
   const labels = presentation.apply(root, d.prefs);
@@ -1036,15 +1049,15 @@ function pageMount(d, childAnchor = null) {
   const tps = d.turnSpeed?.generation?.tps;
   const hasSpeed = Number.isFinite(tps) && tps >= 0;
   const motionEnabled = d.prefs?.speedAnimation === true;
-  const cancelBtnVisible = !childAnchor && !!footerLeft.parentElement.querySelector('[data-testid="input-cancel-button"]');
+  const cancelBtnVisible = !!(sideFooter || (!childAnchor && footerLeft))?.parentElement?.querySelector('[data-testid="input-cancel-button"]');
   const running = !!d.turnSpeed?.hasActiveStep || cancelBtnVisible;
   const showPillSpeed = d.requestTimingAvailable !== false && d.prefs?.showSpeed !== false
-    && (childAnchor ? hasSpeed || (running && motionEnabled) : !!d.turnSpeed || running);
+    && (childAnchor && !sideFooter ? hasSpeed || (running && motionEnabled) : !!d.turnSpeed || running);
   pillSpeed.hidden = !showPillSpeed;
   const childTurnOnly = !!(childAnchor && !d.hasContext && d.turnMetrics && d.prefs?.showTurnMetrics !== false);
   let childContext;
   if (childAnchor) {
-    root.style.maxWidth = 'calc(100% - 12px)';
+    root.style.maxWidth = sideFooter ? '' : 'calc(100% - 12px)';
     const model = root.querySelector('[data-el="childModel"]');
     const modelName = d.subagent?.model || '';
     model.hidden = !modelName;
@@ -1068,9 +1081,10 @@ function pageMount(d, childAnchor = null) {
   presentation.renderContextTooltips(root, d.contextData, labels);
   const now = Date.now();
   const alerts = presentation.renderAlerts(root, { ...d.contextData, requestError: d.requestError, turnQueue: d.turnQueue }, d.prefs, labels, now, cancelBtnVisible || !!d.turnQueue?.hasPendingPlanner);
-  root.querySelector('[data-el="grpQuota"]').hidden = !!childAnchor || d.cloudPaygo;
-  if (childAnchor) host.hidden = !alerts.visible && childContext.hidden && !showPillSpeed && root.querySelector('[data-el="childModel"]').hidden;
-  if (childAnchor) host.style.display = host.hidden ? 'none' : 'block';
+  root.querySelector('[data-el="grpQuota"]').hidden = (!!childAnchor && !sideFooter) || d.cloudPaygo;
+  if (childAnchor) host.hidden = !alerts.visible && childContext.hidden && !showPillSpeed && root.querySelector('[data-el="childModel"]').hidden
+    && root.querySelector('[data-el="grpQuota"]').hidden;
+  if (childAnchor) host.style.display = host.hidden ? 'none' : sideFooter ? 'contents' : 'block';
   if (root._pinnedGroup?.hidden) root._closePinned();
   root._refreshCacheTooltip = () => {
     root.querySelector('[data-el="rowCacheHit"]').title = presentation.cacheTooltip(d.cache, labels, Date.now(), d.prefs);
@@ -1080,7 +1094,7 @@ function pageMount(d, childAnchor = null) {
   presentation.renderTurnMetrics(root, d.turnMetrics, labels, d.prefs);
   // A child can execute again without changing either the URL or transcript.
   // Activity and the last completed request's speed are independent signals.
-  const turnKey = location.pathname + ':' + ((childAnchor ? d.turnSpeed?.executionId : d.turnSpeed?.userStepIndex) ?? 'none');
+  const turnKey = location.pathname + ':' + ((childAnchor && !sideFooter ? d.turnSpeed?.executionId : d.turnSpeed?.userStepIndex) ?? 'none');
   const requestIndex = d.turnSpeed?.generation?.requestIndex ?? null;
   const speedValue = pillSpeed.querySelector('[data-generation="speed"]');
   const speedText = hasSpeed ? tps.toFixed(1) + ' tok/s' : '—';
@@ -1168,7 +1182,7 @@ function pageMount(d, childAnchor = null) {
   };
   const applyModelQuota = () => {
     let mt = '';
-    for (const child of footerLeft.children) {
+    for (const child of (sideFooter || footerLeft).children) {
       if (child !== host && child.textContent) {
         mt += ' ' + child.textContent.trim();
       }
@@ -1524,7 +1538,7 @@ function pageMount(d, childAnchor = null) {
     quotaPop.innerHTML = d.quotaHtml;
   }
   presentation.apply(root, d.prefs);
-  if (!childAnchor) applyModelQuota();
+  if (!childAnchor || sideFooter) applyModelQuota();
 
   root._fitPanelHeights = () => {
     // Only visible capsules participate in matched panel height.
@@ -1565,7 +1579,7 @@ function toView(d) {
   const cache = cacheView(d, d.prefs);
   const { iconSvg: cacheIconSvg, valColor: cacheValColor, valDeco: cacheValDeco, valOp: cacheValOp, text: valCacheHit, countdown: valCacheHitK, ctxIconColor, indicator: cacheIndicator, progressPct: cacheProgressPct, progressColor: cacheProgressColor } = cache;
 
-  const quotaGroups = d.subagent ? [] : quotaView(d.quotaGroups, d.prefs);
+  const quotaGroups = d.subagent && !d.subagent.side ? [] : quotaView(d.quotaGroups, d.prefs);
   const quotaSummaryGroups = quotaGroups.map(({ title, rawName, modelsInGroup, q5h, qWk }) => ({ title, rawName, modelsInGroup, q5h, qWk }));
   const useBar = appearance(d.prefs).quotaIndicator === 'bar';
   let quotaHtml = '<div class="dk-panel-content">';
@@ -1645,6 +1659,8 @@ function installRuntime(owner, hash) {
   window.__deckOwnerTs = owner;
   let data = null;
   let dataPath = '';
+  // Pushed by the sidecar on every readState, so it applies even without a main footer.
+  let sideChatEnabled = false;
   let dataId = '';
   let mainView = null;
   let mainObserver;
@@ -1676,7 +1692,7 @@ function installRuntime(owner, hash) {
     // Installed runtimes own the page; one-off legacy mounts must not strand
     // this runtime behind a newer timestamp while leaving two visible strips.
     window.__deckOwnerTs = owner;
-    const anchors = findSubagentAnchors(footer);
+    const anchors = findSubagentAnchors(footer, sideChatEnabled);
     const ids = new Set(anchors.values());
     for (const id of children.keys()) if (!ids.has(id)) children.delete(id);
     const snapshots = new Map(anchors);
@@ -1698,9 +1714,9 @@ function installRuntime(owner, hash) {
       }
       pageMount(toView(next), anchor);
       if (!entry) {
-        const host = anchor.querySelector(':scope > [data-agy-capsule-subagent]');
+        const host = anchor.querySelector(anchor.matches('[data-testid="side-question-tab-composer"]') ? '[data-agy-capsule-subagent]' : ':scope > [data-agy-capsule-subagent]');
         if (!host) continue;
-        const transcript = anchor.matches('[data-testid="subagent-tab-composer"]')
+        const transcript = anchor.matches('[data-testid="subagent-tab-composer"], [data-testid="side-question-tab-composer"]')
           ? anchor.previousElementSibling : anchor.closest('[data-testid="conversation-view"]');
         const observer = new MutationObserver(() => sync());
         if (transcript) observer.observe(transcript, { attributes: true, attributeFilter: ['data-cascade-id'] });
@@ -1708,14 +1724,16 @@ function installRuntime(owner, hash) {
         childHosts.set(anchor, { id, observer, host });
       }
     }
-    return { footer, conversationId, ids, hasKnownChildAnchor: [...anchors.keys()].some(el => el.matches('[data-testid="subagent-tab-composer"]')) };
+    const sideIds = [...anchors].filter(([el]) => el.matches('[data-testid="side-question-tab-composer"]')).map(([, id]) => id);
+    return { footer, conversationId, ids, sideIds, hasKnownChildAnchor: [...anchors.keys()].some(el => el.matches('[data-testid="subagent-tab-composer"], [data-testid="side-question-tab-composer"]')) };
   };
   const timer = setInterval(() => sync(true), 1000);
   const api = {
     owner, hash,
-    readState(caller) {
+    readState(caller, opts) {
       if (caller < owner) return 'superseded';
-      const { footer, conversationId, ids, hasKnownChildAnchor } = sync();
+      if (typeof opts?.sideChat === 'boolean') sideChatEnabled = opts.sideChat;
+      const { footer, conversationId, ids, sideIds, hasKnownChildAnchor } = sync();
       let modelConversationId = null, modelFamilies = null, contextEstimate = null;
       if (footer) {
         try {
@@ -1735,7 +1753,7 @@ function installRuntime(owner, hash) {
       let effortSync = null;
       try { effortSync = effortEffects().readPendingPatch(); } catch {}
       return { owner, hash, path: location.pathname, hasFooter: !!footer, modelConversationId, modelFamilies, effortSync, contextEstimate,
-        conversationId, loadedMain: !!data, hasKnownChildAnchor, subagentIds: [...ids], loadedSubagentIds: [...children.keys()] };
+        conversationId, loadedMain: !!data, hasKnownChildAnchor, subagentIds: [...ids], sideIds, loadedSubagentIds: [...children.keys()] };
     },
     ackEffortSync(caller, rev) {
       if (caller < owner) return 'superseded';
@@ -1964,7 +1982,8 @@ export function startDeckInjector(inspect, options = {}) {
           const entry = sockets.get(target.id) || await connect(target);
           const context = entry.context;
           const run = expression => evaluate(entry, context, expression);
-          let state = await run(`globalThis.__agyCapsuleDeck?.readState(${owner})??null`);
+          const readOpts = JSON.stringify({ sideChat: options.sideChatEnabled?.() === true });
+          let state = await run(`globalThis.__agyCapsuleDeck?.readState(${owner},${readOpts})??null`);
           if (state === undefined || stopped) { failed++; continue; }
           if (state === 'superseded') return await supersede();
           if (state?.owner !== owner || state.hash !== bundle.hash) {
@@ -1973,7 +1992,7 @@ export function startDeckInjector(inspect, options = {}) {
             if (!installed || stopped) { failed++; continue; }
             entry.lastPayload = '';
             entry.lastChildPayloads = new Map();
-            state = await run(`globalThis.__agyCapsuleDeck?.readState(${owner})??null`);
+            state = await run(`globalThis.__agyCapsuleDeck?.readState(${owner},${readOpts})??null`);
           }
           if (state === 'superseded') return await supersede();
           if (state?.owner !== owner || !state.path) { failed++; continue; }
@@ -2018,7 +2037,8 @@ export function startDeckInjector(inspect, options = {}) {
           let hasChild = state.hasKnownChildAnchor === true;
           for (const id of childPayloads.keys()) if (!childIds.includes(id)) childPayloads.delete(id);
           for (const id of childIds) {
-            const result = await Promise.resolve().then(() => inspect(id, true, true)).catch(() => null);
+            const side = Array.isArray(state.sideIds) && state.sideIds.includes(id);
+            const result = await Promise.resolve().then(() => inspect(id, true, side ? 'side' : true)).catch(() => null);
             if (stopped) break;
             const child = result?.subagent && !result.error ? result : null;
             if (child) hasChild = true;

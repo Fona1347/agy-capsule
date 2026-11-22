@@ -42,6 +42,8 @@ test('CDP installs code once, skips unchanged payloads, updates on navigation, a
   let modelStates = {};
   const mainReads = [], childReads = [], childPushes = [];
   let childData = null;
+  let sideChat = false;
+  const readStates = [];
   const connections = [];
   const origin = 'https://127.0.0.1:5351';
   const emitContext = (socket, origin, uniqueId) => socket.onmessage({ data: JSON.stringify({
@@ -59,7 +61,7 @@ test('CDP installs code once, skips unchanged payloads, updates on navigation, a
       assert.equal(uniqueContextId, 'document-1');
       let value;
       if (expression.includes('function installRuntime')) { injections++; installed = allowInstall; value = installed; }
-      else if (expression.includes('.readState(')) value = installed ? { owner, hash, path, hasFooter, ...modelStates[this.id] } : null;
+      else if (expression.includes('.readState(') && readStates.push(expression)) value = installed ? { owner, hash, path, hasFooter, ...modelStates[this.id] } : null;
       else if (expression.includes('.apply(')) { pushes++; value = allowApply; }
       else if (expression.includes('.applySubagent(')) { childPushes.push(expression); value = true; }
       queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, result: { result: { value } } }) }));
@@ -86,7 +88,7 @@ test('CDP installs code once, skips unchanged payloads, updates on navigation, a
       if (inspectFails) throw new Error('data unavailable');
       if (navigateWhileReading) emitContext(connections[0], 'https://127.0.0.1:7777', 'preview-document');
       return next;
-    }, { ...fixture, portFile: file, instanceTs: owner });
+    }, { ...fixture, portFile: file, instanceTs: owner, sideChatEnabled: () => sideChat });
     await injector.tick(); assert.equal(injections, 1); assert.equal(pushes, 1);
     assert.equal(injector.status(), 'ok', 'distinct hub and sidecar credentials work when the LS accepts the sidecar');
     await injector.tick(); assert.equal(injections, 1); assert.equal(pushes, 1); assert.equal(lists, 1);
@@ -173,6 +175,15 @@ test('CDP installs code once, skips unchanged payloads, updates on navigation, a
     childData = null;
     await injector.tick();
     assert.match(childPushes.at(-1), /applySubagent\(null,/, 'clear data that is no longer verifiable');
+    // The side chat switch travels with every readState, so it applies even when no main payload is sent.
+    assert.match(readStates.at(-1), /"sideChat":false/, 'side chats are off by default');
+    sideChat = true; modelStates.page.sideIds = [second]; childData = { subagent: { model: '', side: true } };
+    await injector.tick();
+    assert.match(readStates.at(-1), /"sideChat":true/);
+    assert.deepEqual(childReads.at(-1), [second, true, 'side'], 'side chat IDs are read in side mode');
+    sideChat = false; delete modelStates.page.sideIds;
+    await injector.tick();
+    assert.match(readStates.at(-1), /"sideChat":false/, 'turning the switch off reaches the page on the next poll');
     pageExists = false; now += 5000; await injector.tick();
     assert.deepEqual(injector.models(first), [], 'closed composers do not leave a stale model list');
   } finally {

@@ -27,7 +27,7 @@ const settingsStore = createSettingsStore();
 const checkVersion = createVersionChecker({ getPrefs: () => settingsStore.read() });
 const updatePlugin = createPluginUpdater({ sidecarDirectory: dirname(fileURLToPath(import.meta.url)), checkVersion });
 const cloudTelemetryStore = createCloudTelemetryStore();
-const PANEL_VERSION = 162;
+const PANEL_VERSION = 163;
 const diagnosticSystem = [process.platform, release().match(/^\d+(?:\.\d+)*/)?.[0]].filter(Boolean).join(' ');
 const presentation = createPresentation();
 export function getNotifyText(shortcutState, prefs) {
@@ -376,7 +376,11 @@ async function readSelectedConversation(convId, allowLatest, subagentOnly = fals
   touchActiveConversation(basename(dbPath, '.db'));
 
   const snapshot = conversationCache.read(dbPath, prefs.showTurnMetrics);
-  if (subagentOnly && !snapshot?.subagent) return null;
+  // 'side': a full conversation shown in a side chat tab. Render it through the
+  // child-strip path, mounted inside the native footer (native model picker stays).
+  const side = subagentOnly === 'side';
+  if (side && !snapshot) return null;
+  if (subagentOnly && !side && !snapshot?.subagent) return null;
   const health = conversationCache.health(dbPath);
   if (!snapshot) {
     const empty = await makeEmptyContextResult(health);
@@ -390,8 +394,9 @@ async function readSelectedConversation(convId, allowLatest, subagentOnly = fals
     uiVersion: PANEL_VERSION,
     ...snapshot,
     ...(showEstimate && { contextEstimate: estimate }),
+    ...(side && { subagent: { model: '', side: true } }),
     prefs,
-    ...(subagentOnly ? NO_QUOTA : await fetchQuota()),
+    ...(subagentOnly && !side ? NO_QUOTA : await fetchQuota()),
   };
 }
 
@@ -1797,6 +1802,7 @@ const UI_HTML = `<!DOCTYPE html>
     ${renderCheckCard({ id: 'setting-context-warnings', key: 'showContextWarnings', checked: true })}
     ${renderCheckCard({ id: 'setting-request-errors', key: 'showRequestErrors', checked: true })}
     ${renderCheckCard({ id: 'setting-notify-cdp-restart', helpId: 'notify-cdp-restart', key: 'notifyCdpRestart', tip: 'cdpRestartPreview', checked: DEFAULT_SETTINGS.notifyCdpRestart })}
+    ${renderCheckCard({ id: 'setting-side-chat-capsules', helpId: 'side-chat-capsules', key: 'showSideChatCapsules', tip: 'sideChatCapsulesTip', checked: DEFAULT_SETTINGS.showSideChatCapsules })}
     <div class="setting-card setting-speed-pair metric-setting" data-setting-card="showSpeed" data-checked="true" data-speed-fx="false">
       <div class="setting-head setting-pair-head">
         <div class="setting-pair-item">
@@ -3305,6 +3311,7 @@ if (isMain && (process.env.ANTIGRAVITY_LS_ADDRESS || process.env.ANTIGRAVITY_SID
     onCloudTelemetry: rememberCloudTelemetry,
     onStatus: state => cdpNotice.observe(state),
     onEffortSettingsPatch: patch => settingsStore.update(patch),
+    sideChatEnabled: () => settingsStore.read().showSideChatCapsules === true,
   });
   let stopping = false;
   const shutdown = async (reason) => {

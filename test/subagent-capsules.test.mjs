@@ -99,6 +99,13 @@ test('child reads never move the main sidebar and alerts stay in the child execu
   assert.equal(noExecution.turnMetrics, null, 'a child with no execution never uses the parent turn');
   assert.equal(noExecution.turnSpeed, null, 'a child with no execution never uses the parent speed');
   assert.equal((await inspectConversation()).contextTokens, 77);
+  const side = await inspectConversation('main', true, 'side');
+  assert.deepEqual(side.subagent, { model: '', side: true }, 'a normal DB in a side chat renders through the child path');
+  assert.equal(side.contextTokens, 77);
+  assert.equal(side.turnMetrics.write, 42, 'side chats keep normal turn semantics');
+  assert.equal((await inspectConversation('child', true, 'side')).contextTokens, 150);
+  assert.equal(await inspectConversation('missing', true, 'side'), null);
+  assert.equal((await inspectConversation()).contextTokens, 77, 'side reads do not move the CDP composer pointer');
 
   let postContext;
   class SidecarApp {

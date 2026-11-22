@@ -208,6 +208,42 @@ await test('A wider side-question composer never takes the main footer capsule',
   assert.equal(await main.locator('#agy-capsule-host').count(), 1);
 });
 
+await test('Side chat capsules are opt-in, sit in the native footer, and turn off without a main composer', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1200, height: 600 } });
+  const mainId = '11111111-1111-1111-1111-111111111111';
+  const sideId = '44444444-4444-4444-4444-444444444444';
+  const footer = model => `<div data-testid="agent-input-box"><div class="agy-composer-footer"><div><button data-testid="model-selector-trigger">${model}</button></div></div></div>`;
+  await page.route('http://agy.test/**', route => route.fulfill({ body: '', contentType: 'text/html' }));
+  await page.goto('http://agy.test/c/' + mainId);
+  await page.setContent(`<div style="display:flex">
+    <main data-testid="conversation-view" data-cascade-id="${mainId}" style="width:500px">${footer('Gemini')}</main>
+    <aside data-testid="side-question-tab-content" style="width:600px">
+      <div data-testid="side-question-tab-conversation" data-cascade-id="${sideId}" style="height:120px">side</div>
+      <div data-testid="side-question-tab-composer" data-side-panel-composer>${footer('Claude')}</div>
+    </aside>
+  </div>`);
+  await page.evaluate(buildRuntimeBundle(owner).code);
+  const state = opts => page.evaluate(([owner, opts]) => globalThis.__agyCapsuleDeck.readState(owner, opts ?? undefined), [owner, opts ?? null]);
+  const applySide = data => page.evaluate(([data, owner, id]) => globalThis.__agyCapsuleDeck.applySubagent(data, location.pathname, owner, id), [data, owner, sideId]);
+  const sideHost = page.locator('[data-testid="side-question-tab-composer"] [data-agy-capsule-subagent]');
+  assert.equal(await apply(page, snapshot()), true);
+
+  assert.deepEqual((await state()).sideIds, [], 'side chats are off until the sidecar enables them');
+  assert.deepEqual((await state()).subagentIds, []);
+  assert.equal(await applySide({ ...snapshot(), subagent: { model: '', side: true } }), false, 'no side data is accepted while off');
+
+  assert.deepEqual((await state({ sideChat: true })).sideIds, [sideId]);
+  assert.equal(await applySide({ ...snapshot(), subagent: { model: '', side: true } }), true);
+  assert.equal(await sideHost.count(), 1);
+  assert.equal(await sideHost.evaluate(host => !!host.closest('.agy-composer-footer')), true, 'mounted inside the native footer, next to the model button');
+
+  await page.getByTestId('conversation-view').evaluate(el => { el.hidden = true; });
+  assert.deepEqual((await state({ sideChat: false })).sideIds, [], 'turning the switch off does not depend on main composer data');
+  assert.equal(await sideHost.count(), 0);
+});
+
 await test('Child capsules follow the transcript in side and main views without borrowing the parent', async t => {
   const browser = await chromium.launch(launch);
   t.after(() => browser.close());
