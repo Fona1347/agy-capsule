@@ -9,6 +9,7 @@ Thumbs.db
 
 # Local preview renders and scratch files
 /tmp/
+/dist/
 /.remotion/
 
 # Internal task checklist (kept local only)
