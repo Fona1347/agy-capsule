@@ -140,7 +140,13 @@ https://github.com/user-attachments/assets/9f5bf1c6-1284-4e17-a380-defdee83f60c
 
 ### Linux
 
-在仓库目录运行 `sh install.sh` 安装，`sh update.sh` 更新（先拉取新版代码），`sh uninstall.sh` 卸载。插件装在 <code>~/.gemini/config/plugins/agy-capsule</code>。装好后在 **Plugins** 面板启用。底栏胶囊需要用 `--remote-debugging-port=0` 参数启动 Antigravity。
+请按 [Linux 安装指南](./docs/linux-install.md#中文) 安装，里面包含下载、安装、底栏胶囊设置、更新、卸载和排查的全部步骤。
+
+想让 AI 代装的话，把这句话发给 Antigravity：
+
+```text
+请按 https://github.com/Lumidarin/agy-capsule/blob/main/docs/linux-install.md 帮我安装 agy-capsule。
+```
 
 ### 常见问题
 

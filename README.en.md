@@ -140,7 +140,13 @@ Please install agy-capsule for me following https://github.com/Lumidarin/agy-cap
 
 ### Linux
 
-From the repository folder, run `sh install.sh` to install, `sh update.sh` to update (pull the latest code first) and `sh uninstall.sh` to uninstall. The plugin lives in <code>~/.gemini/config/plugins/agy-capsule</code>. Enable it in the **Plugins** panel afterwards. The footer capsule needs Antigravity started with `--remote-debugging-port=0`.
+Follow the [Linux installation guide](./docs/linux-install.md#english). It covers downloading, installing, the footer capsule setup, updating, uninstalling and troubleshooting.
+
+To have an AI install it, send this to Antigravity:
+
+```text
+Please install agy-capsule for me following https://github.com/Lumidarin/agy-capsule/blob/main/docs/linux-install.md
+```
 
 ### FAQ
 
