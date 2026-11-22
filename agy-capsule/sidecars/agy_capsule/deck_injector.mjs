@@ -171,11 +171,11 @@ function pageMount(d, childAnchor = null) {
   if (host.getAttribute('translate') !== 'no') host.setAttribute('translate', 'no');
 
   // Upgrade or initialize DOM structure in-place
-  if (root.getAttribute('data-deck-ver') !== '138') {
+  if (root.getAttribute('data-deck-ver') !== '139') {
     release(root);
     root._pinnedGroup = null;
     root.removeAttribute('data-pinned');
-    root.setAttribute('data-deck-ver', '138');
+    root.setAttribute('data-deck-ver', '139');
     root._speedActivity = null;
     root._motionPrev = null;
     root.style.cssText = [
@@ -382,6 +382,10 @@ function pageMount(d, childAnchor = null) {
         #deck-metrics-strip.dk-hide-ctx [data-el="grpCtx"] { display: none; }
         #deck-metrics-strip[data-context-tone="warning"] [data-k="pillCtx"] { color: #d4940a !important; }
         #deck-metrics-strip[data-context-tone="error"] [data-k="pillCtx"] { color: #e06c75 !important; }
+        #deck-metrics-strip .dk-pill-cache { flex: none; font-variant-numeric: tabular-nums; }
+        #deck-metrics-strip .dk-pill-cache::before { content: '·'; margin-inline-end: 4px; }
+        #deck-metrics-strip .dk-pill-cache[hidden],
+        #deck-metrics-strip.dk-hide-cache-hit .dk-pill-cache { display: none; }
         #deck-metrics-strip .dk-speed { padding-left: 2px; font-variant-numeric: tabular-nums; }
         #deck-metrics-strip > .dk-speed { flex: none; padding: 3px 5px; white-space: nowrap; }
         #deck-metrics-strip .dk-speed-dot { display: none; }
@@ -795,6 +799,7 @@ function pageMount(d, childAnchor = null) {
         <button type="button" class="dk-pill" aria-expanded="false">
           <svg class="dk-svg" data-el="ctxIconSvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
           <span class="dk-val" data-k="pillCtx">--%</span>
+          <span class="dk-pill-cache" data-el="pillCacheHit" hidden><span data-i18n="cache"></span> <span data-k="pillCacheHitPct"></span></span>
           <span class="dk-speed" data-el="pillSpeed" hidden><span class="dk-speed-dot" aria-hidden="true"></span><span data-generation="speed"></span></span>
         </button>
         <div class="dk-pop dk-ctx-pop">
@@ -1045,6 +1050,9 @@ function pageMount(d, childAnchor = null) {
   }
   const labels = presentation.apply(root, d.prefs);
   const contextPill = root.querySelector('[data-el="grpCtx"] .dk-pill');
+  const showPillCacheHit = (!childAnchor || !!sideFooter) && d.prefs?.showCacheHitInFooter === true
+    && !d.contextEstimated && d.cache.contextTokens > 0 && Number.isFinite(d.cache.cachedIn);
+  contextPill.querySelector('[data-el="pillCacheHit"]').hidden = !showPillCacheHit;
   const pillSpeed = root.querySelector('[data-el="pillSpeed"]');
   const tps = d.turnSpeed?.generation?.tps;
   const hasSpeed = Number.isFinite(tps) && tps >= 0;
@@ -1119,7 +1127,6 @@ function pageMount(d, childAnchor = null) {
     pillSpeed.removeAttribute('data-motion');
     pillSpeed.removeAttribute('data-tier');
   }
-  contextPill.setAttribute('aria-label', childTurnOnly ? labels.turnMetrics : labels.context);
   for (const node of [contextPill, ...contextPill.querySelectorAll('[title]')]) node.removeAttribute('title');
   root.querySelector('[data-el="grpQuota"] .dk-pill').setAttribute('aria-label', labels.quota);
 
@@ -1129,6 +1136,7 @@ function pageMount(d, childAnchor = null) {
   };
 
   setK('pillCtx', childTurnOnly ? labels.turnLabel : d.pillCtx);
+  setK('pillCacheHitPct', d.valCacheHit);
   setK('usedPctText', d.pillCtx);
   setK('usedFrac', d.usedFrac);
   setK('valCacheHit', d.valCacheHit);
@@ -1291,6 +1299,16 @@ function pageMount(d, childAnchor = null) {
     return { maxR, svgClipped };
   };
 
+  const isClippedEl = (el) => {
+    if (el instanceof SVGElement) return false;
+    if (el.closest('[data-deck-model-bubble]')) return false;
+    const overflow = getComputedStyle(el).overflowX;
+    if (overflow !== 'hidden' && overflow !== 'clip') return false;
+    if (el.scrollWidth <= el.clientWidth + 2) return false;
+    const r = el.getBoundingClientRect();
+    return r.height > 0 && el.getClientRects().length > 0;
+  };
+
   const adjustLayout = () => {
     if (root._adjustingLayout) return;
     root._adjustingLayout = true;
@@ -1309,16 +1327,6 @@ function pageMount(d, childAnchor = null) {
     const turbo = footer.querySelector('[data-testid="permissions-selector-trigger"]');
     if (root._turboTarget && root._turboTarget !== turbo) root._turboTarget.removeAttribute('data-deck-turbo-collapsed');
     root._turboTarget = turbo;
-
-    const isClippedEl = (el) => {
-      if (el instanceof SVGElement) return false;
-      if (el.hasAttribute?.('data-deck-model-bubble') || el.closest?.('[data-deck-model-bubble]')) return false;
-      const overflow = getComputedStyle(el).overflowX;
-      if (overflow !== 'hidden' && overflow !== 'clip') return false;
-      if (el.scrollWidth <= el.clientWidth + 2) return false;
-      const r = el.getBoundingClientRect();
-      return r.height > 0 && el.getClientRects().length > 0;
-    };
 
     const isNativeSqueezed = () => {
       for (const c of nativeChildren) {
@@ -1361,7 +1369,8 @@ function pageMount(d, childAnchor = null) {
     const modeClasses = ['dk-hide-speed', 'dk-hide-wk', 'dk-hide-5h', 'dk-hide-qval', 'dk-hide-cval', 'dk-hide-quota', 'dk-hide-error-label', 'dk-hide-ctx', 'dk-hide-all'];
     const modes = [
       { classes: [], compress: '' },
-      // First reserve width by collapsing the native Turbo selector to its shield.
+      ...(showPillCacheHit ? [{ classes: [], compress: '' }] : []),
+      // After dropping the cache rate, collapse the native Turbo selector to its shield.
       // Keep it collapsed through ALL capsule stages, never alternate priorities.
       ...(turbo ? [{ classes: [], compress: '' }] : []),
       { classes: ['dk-hide-speed'], compress: '' },
@@ -1377,8 +1386,9 @@ function pageMount(d, childAnchor = null) {
     ];
 
     for (const [modeIndex, mode] of modes.entries()) {
+      root.classList.toggle('dk-hide-cache-hit', showPillCacheHit && modeIndex > 0);
       if (turbo) {
-        if (modeIndex > 0) turbo.setAttribute('data-deck-turbo-collapsed', 'true');
+        if (modeIndex > (showPillCacheHit ? 1 : 0)) turbo.setAttribute('data-deck-turbo-collapsed', 'true');
         else turbo.removeAttribute('data-deck-turbo-collapsed');
       }
       const classes = mode.classes.length > 0 && !mode.classes.includes('dk-hide-speed') ? ['dk-hide-speed', ...mode.classes] : mode.classes;
@@ -1434,12 +1444,21 @@ function pageMount(d, childAnchor = null) {
   };
   root._adjustLayout = () => {
     if (childAnchor) {
-      root.classList.remove('dk-hide-all', 'dk-hide-speed');
+      root.classList.remove('dk-hide-all', 'dk-hide-speed', 'dk-hide-cache-hit');
       const model = root.querySelector('[data-el="childModel"]');
       // Allow a readable ellipsis, but don't show a sliver of the model or
       // clip the non-shrinking pills when the host splits the sidebar again.
       const overflows = () => root.scrollWidth > root.clientWidth + 1 ||
         (!model.hidden && model.clientWidth < Math.min(24, model.scrollWidth));
+      if (showPillCacheHit && !host.hidden) {
+        const nativeModel = sideFooter.querySelector('[data-testid="model-selector-trigger"]');
+        const row = sideFooter.parentElement;
+        const clipsModel = nativeModel && [nativeModel, ...nativeModel.querySelectorAll('*')].some(isClippedEl);
+        const intrudesOnRight = root.getBoundingClientRect().right > sideFooter.getBoundingClientRect().right + 1;
+        if (overflows() || clipsModel || intrudesOnRight || row.scrollWidth > row.clientWidth + 1) {
+          root.classList.add('dk-hide-cache-hit');
+        }
+      }
       if (!host.hidden && overflows() && showPillSpeed && (!childContext.hidden || !model.hidden || alerts.visible)) {
         root.classList.add('dk-hide-speed');
       }
@@ -1448,6 +1467,9 @@ function pageMount(d, childAnchor = null) {
         root.classList.add('dk-hide-all');
       }
     } else adjustLayout();
+    const contextLabel = childTurnOnly ? labels.turnMetrics : labels.context;
+    const cacheVisible = showPillCacheHit && !root.classList.contains('dk-hide-cache-hit');
+    contextPill.setAttribute('aria-label', cacheVisible ? `${contextLabel}, ${labels.cacheHitRate} ${d.valCacheHit}` : contextLabel);
     root._layoutPopovers();
   };
   root._scheduleLayout = () => {

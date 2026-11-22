@@ -27,7 +27,7 @@ const settingsStore = createSettingsStore();
 const checkVersion = createVersionChecker({ getPrefs: () => settingsStore.read() });
 const updatePlugin = createPluginUpdater({ sidecarDirectory: dirname(fileURLToPath(import.meta.url)), checkVersion });
 const cloudTelemetryStore = createCloudTelemetryStore();
-const PANEL_VERSION = 163;
+const PANEL_VERSION = 166;
 const diagnosticSystem = [process.platform, release().match(/^\d+(?:\.\d+)*/)?.[0]].filter(Boolean).join(' ');
 const presentation = createPresentation();
 export function getNotifyText(shortcutState, prefs) {
@@ -733,6 +733,7 @@ const PV_CARD_PREVIEW = {
     <span class="pv-pill pv-hq-pill"><span class="pv-hq-miss">${PV_SVG.clock}<span>--%</span></span><span class="pv-hq-keep">${PV_SVG.cal}<span>85%</span></span></span>
     <span class="pv-pill pv-hq-pill"><span class="pv-hq-zero">${PV_SVG.clock}<span>0%</span></span><span class="pv-hq-keep">${PV_SVG.cal}<span>85%</span></span></span>
   </div>`,
+  showCacheHitInFooter: `<span class="pv-pill">${PV_SVG.db}<span>42%</span><span class="pv-cache-hit-value">· <span data-i18n="cache">Cache</span> 78%</span></span>`,
   showCacheWarnings: `<div class="pv-cache-warn">
     <span class="pv-pill pv-ca-1">${PV_SVG.db}<span data-cache-pv="fresh">&lt;3m</span></span>
     <span class="pv-pill pv-ca-2">${PV_SVG.db}<span data-cache-pv="warn">3m+</span></span>
@@ -1286,6 +1287,7 @@ const UI_HTML = `<!DOCTYPE html>
     .pv-hq-miss { max-width: 56px; opacity: 1; margin-right: 6px; transition: max-width .22s ease, opacity .18s ease, margin-right .22s ease; }
     .pv-hq-zero { margin-right: 6px; color: #ef4444; font-weight: 600; }
     [data-setting-card="hideUnavailableQuota"][data-checked="true"] .pv-hq-miss { max-width: 0; opacity: 0; margin-right: 0; }
+    [data-setting-card="showCacheHitInFooter"][data-checked="false"] .pv-cache-hit-value { display: none; }
     /* Cache expiry alert: unchecked all neutral, checked 3m+ yellow icon, 4m+ red icon */
     .setting-thresholds { display: inline-flex; align-items: center; gap: 5px; min-width: 0; flex-shrink: 0; transition: opacity .18s ease; }
     .setting-threshold-card[data-checked="false"] .setting-thresholds { opacity: .42; pointer-events: none; }
@@ -1776,6 +1778,7 @@ const UI_HTML = `<!DOCTYPE html>
     <div class="settings-scope" data-settings-scope="features" data-i18n="featuresSection"></div>
     ${renderCheckCard({ id: 'setting-highlight-active-model', key: 'highlightActiveModel', checked: false })}
     ${renderCheckCard({ id: 'setting-hide-unavailable-quota', key: 'hideUnavailableQuota', checked: DEFAULT_SETTINGS.hideUnavailableQuota })}
+    ${renderCheckCard({ id: 'setting-cache-hit-in-footer', key: 'showCacheHitInFooter', checked: DEFAULT_SETTINGS.showCacheHitInFooter })}
     <div class="setting-card setting-threshold-card" data-setting-card="showCacheWarnings" data-checked="${DEFAULT_SETTINGS.showCacheWarnings}">
       <div class="setting-head setting-pair-head">
         <div class="setting-pair-item">

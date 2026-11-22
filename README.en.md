@@ -27,6 +27,8 @@ Almost every feature in this plugin is highly customizable, from a minimal foote
 
 Shows context usage, cache hit rate and cache status. The limit is read live for the current session and model.
 
+☑ **Show cache hit rate**: Off by default. When enabled, the first capsule shows the cache hit rate next to context usage. The footer omits the rate when no measured data is available or space is tight.
+
 ☑ **Cache expiry alert**: The capsule icon turns yellow at 3 minutes after the last turn and red at 4 by default, meaning the `Cache` has expired. Both thresholds can be customized inline in Settings (up to 998 / 999 minutes). The panel's Cache row updates with it.
 
 ☑ **Context overload alert**: The capsule number turns yellow above 75% and red above 90%.

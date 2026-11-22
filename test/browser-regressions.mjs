@@ -945,6 +945,68 @@ await test('Footer reveals and wider speed values never overlap the native contr
   assert.deepEqual(errors, []);
 });
 
+await test('Footer cache hit rate is opt-in and fits before existing controls are compacted', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 900, height: 600 }, reducedMotion: 'reduce' });
+  const sideId = '44444444-4444-4444-4444-444444444444';
+  const footer = `<div class="agy-composer-footer"><div class="footer-left">
+    <button data-testid="model-selector-trigger">Gemini</button>
+  </div><div class="right"><button data-testid="permissions-selector-trigger">Turbo</button><button>Send</button></div></div>`;
+  await page.setContent(`<style>
+    .agy-composer-footer { display:flex; align-items:center; gap:4px; width:650px; font:13px Arial }
+    .footer-left { display:flex; align-items:center; flex:1; min-width:0 }
+    .footer-left > button { flex:none; width:104px }
+    .right { display:flex; flex:none; width:124px }
+    .right > button { flex:1 }
+  </style><main data-testid="conversation-view">${footer}</main>
+  <aside><div data-testid="side-question-tab-conversation" data-cascade-id="${sideId}" style="height:120px">side</div>
+  <div data-testid="side-question-tab-composer">${footer}</div></aside>`);
+  await page.evaluate(buildRuntimeBundle(owner).code);
+  const main = page.locator('main');
+  const side = page.locator('aside');
+  const cache = pane => pane.locator('[data-el="pillCacheHit"]');
+  const data = snapshot();
+  data.prefs.showSpeed = true;
+  assert.equal(await apply(page, data), true);
+  assert.equal(await cache(main).isVisible(), false, 'existing settings do not show the rate');
+
+  data.prefs.showCacheHitInFooter = true;
+  assert.equal(await apply(page, { ...data, contextTokens: 0, cachedIn: 0 }), true);
+  assert.equal(await cache(main).isVisible(), false, 'no measured request is not a 0% hit');
+  assert.equal(await apply(page, { ...data, cachedIn: 0 }), true);
+  assert.equal(await cache(main).innerText(), 'Cache 0%');
+  assert.equal(await apply(page, data), true);
+  assert.equal(await cache(main).innerText(), 'Cache 78%');
+
+  await page.evaluate(([data, owner, id]) => {
+    const deck = globalThis.__agyCapsuleDeck;
+    deck.readState(owner, { sideChat: true });
+    deck.applySubagent({ ...data, subagent: { side: true, model: '' } }, location.pathname, owner, id);
+  }, [data, owner, sideId]);
+  assert.equal(await cache(side).innerText(), 'Cache 78%');
+
+  for (const pane of [main, side]) {
+    const composerFooter = pane.locator('.agy-composer-footer');
+    const pill = pane.locator('[data-el="grpCtx"] .dk-pill');
+    const speed = pane.locator('[data-el="pillSpeed"]');
+    const quota = pane.locator('[data-el="grpQuota"]');
+    await composerFooter.evaluate(el => { el.style.width = '485px'; });
+    await cache(pane).waitFor({ state: 'hidden', timeout: 2000 });
+    assert.equal(await pill.locator('[data-k="pillCtx"]').innerText(), '50%');
+    assert.equal(await speed.isVisible(), true);
+    assert.equal(await quota.isVisible(), true);
+    assert.equal(await pane.locator('[data-testid="permissions-selector-trigger"]').getAttribute('data-deck-turbo-collapsed'), null);
+    await composerFooter.evaluate(el => { el.style.width = '650px'; });
+    await cache(pane).waitFor({ state: 'visible', timeout: 2000 });
+  }
+  data.prefs.showCacheHitInFooter = false;
+  assert.equal(await apply(page, data), true);
+  assert.equal(await cache(main).isVisible(), false);
+  await main.locator('[data-el="grpCtx"] .dk-pill').click();
+  assert.equal(await main.locator('[data-k="valCacheHit"]').innerText(), '78%', 'detail keeps its original rate');
+});
+
 await test('Pinned popovers fit a narrower clipping container and regain their width when it grows', async t => {
   const browser = await chromium.launch(launch);
   t.after(() => browser.close());
