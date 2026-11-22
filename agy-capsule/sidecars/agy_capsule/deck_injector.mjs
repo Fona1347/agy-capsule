@@ -158,6 +158,8 @@ function pageMount(d, childAnchor = null) {
     root.id = 'deck-metrics-strip';
     shadow.appendChild(root);
   }
+  // The capsule localizes this shadow tree itself, independently of the host.
+  if (host.getAttribute('translate') !== 'no') host.setAttribute('translate', 'no');
 
   // Upgrade or initialize DOM structure in-place
   if (root.getAttribute('data-deck-ver') !== '138') {

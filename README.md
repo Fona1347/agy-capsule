@@ -99,6 +99,15 @@ https://github.com/user-attachments/assets/9f5bf1c6-1284-4e17-a380-defdee83f60c
 
 ☑ **重置倒计时**：紧凑、本地化样式。
 
+### Antigravity 汉化补丁
+
+如果想把 Antigravity 本身切成中文，下面两套第三方补丁选一套即可。已在 **Windows + Antigravity 2.34.0** 上分别实测，agy-capsule 的侧栏和底栏都能保留自己的语言设置。
+
+- **优先推荐**：[Antigravity-Chinese-Localization v2.34.0](https://github.com/antigravity-cn-community/Antigravity-Chinese-Localization/releases/tag/v2.34.0)。
+- **也已实测兼容**：[antigravity2-cn（提交 `f7a0c4e`）](https://github.com/qqxpee/antigravity2-cn/tree/f7a0c4ebe088917bdc5121ac9b3bbad1c89b6059)。
+
+遇到共装问题，欢迎到 [GitHub Issues](https://github.com/Lumidarin/agy-capsule/issues) 反馈。请附上 Antigravity、agy-capsule 和汉化补丁的版本，以及出问题的位置，方便我们复现并跟进适配。
+
 ## 设置
 
 在对话顶部 **… → Extensions → agy-capsule** 打开侧栏，顶部可切换「统计」「设置」和「模型」。

@@ -99,6 +99,15 @@ An optional section at the bottom of the sidebar’s Statistics page.
 
 ☑ **Reset countdown**: Compact, localized.
 
+### Chinese localization for Antigravity
+
+To translate Antigravity itself, choose one of these third-party patches. Each was tested separately on **Windows with Antigravity 2.34.0**. The agy-capsule sidebar and footer both kept their own language settings.
+
+- **Recommended**: [Antigravity-Chinese-Localization v2.34.0](https://github.com/antigravity-cn-community/Antigravity-Chinese-Localization/releases/tag/v2.34.0).
+- **Also tested and compatible**: [antigravity2-cn (commit `f7a0c4e`)](https://github.com/qqxpee/antigravity2-cn/tree/f7a0c4ebe088917bdc5121ac9b3bbad1c89b6059).
+
+If you run into a compatibility issue, please [report it on GitHub](https://github.com/Lumidarin/agy-capsule/issues). Include your Antigravity, agy-capsule, and localization patch versions, and where the problem appears so we can reproduce and follow up.
+
 ## Settings
 
 Open **… → Extensions → agy-capsule** from the conversation header, then use the Statistics, Settings, and Models tabs at the top.

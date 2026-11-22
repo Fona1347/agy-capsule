@@ -823,7 +823,7 @@ const PV_CONTEXT_ITEMS = [['turn0', '#d4940a', '14.6K', '3%'], ['read', '#388bfd
 const PV_TURN_ITEMS = [['elapsed', 'turnLabel', '42s'], ['requests', 'turnReqsLabel', '2'], ['thinking', 'turnThinking', '640'], ['write', 'turnWrite', '1.4K']];
 
 const UI_HTML = `<!DOCTYPE html>
-<html>
+<html translate="no">
 <head>
   <meta charset="UTF-8" />
   <meta name="referrer" content="no-referrer" />
