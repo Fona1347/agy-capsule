@@ -15,11 +15,11 @@ function bridge() {
     const tr = (...args) => text(lang, ...args);
     const labels = {
       'cli-quota': ['Refresh CLI account quota', '读取 CLI 当前账号额度', '讀取 CLI 目前帳號額度'],
-      check: ['Check IDE updates', '检查 IDE 更新', '檢查 IDE 更新'],
-      install: ['Install VSIX…', '安装 VSIX…', '安裝 VSIX…'],
+      check: ['Check IDE updates', '检查插件更新', '檢查插件更新'],
+      install: ['Install VSIX…', '本地安装VSIX', '本機安裝VSIX'],
       repair: ['Repair IDE shortcut', '修复 IDE 快捷方式', '修復 IDE 捷徑'],
       updates: data.prefs.notifyUpdates ? ['Update alerts: on', '更新提醒：开', '更新提醒：開'] : ['Update alerts: off', '更新提醒：关', '更新提醒：關'],
-      'data-directory': ['Data directory…', '数据目录…', '資料目錄…'],
+      'data-directory': ['Data directory…', '设置对话记录的读取位置', '設定對話記錄的讀取位置'],
     };
     for (const btn of document.querySelectorAll('[data-ide-action]')) {
       const action = btn.dataset.ideAction;

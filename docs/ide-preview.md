@@ -1,6 +1,6 @@
 # Antigravity IDE：预览版与桌面 App 有什么不同？
 
-适用版本：Standalone IDE 2.8.0，胶囊 IDE 扩展 0.2.0。[下载分支预览包](https://github.com/Lumidarin/agy-capsule/raw/refs/heads/codex/ide-preview/preview/agy-capsule-ide-0.2.0.vsix)，在 IDE 中执行 **Extensions: Install from VSIX…**。如果已经安装同一扩展，安装后按 IDE 提示重载即可。桌面 App 不用安装这个文件。
+适用版本：Standalone IDE 2.8.0，胶囊 IDE 扩展 0.2.1。[下载分支预览包](https://github.com/Lumidarin/agy-capsule/raw/refs/heads/codex/ide-preview/preview/agy-capsule-ide-0.2.1.vsix)，在 IDE 中执行 **Extensions: Install from VSIX…**。如果已经安装同一扩展，安装后按 IDE 提示重载即可。桌面 App 不用安装这个文件。
 
 ## 五处实现差异
 
@@ -21,6 +21,6 @@
 
 ## 分支下载、正式发布和商店是三件事
 
-1. **分支预览（本次）**：源码与 VSIX 放在 `codex/ide-preview`；无需合并 main、创建 Release 或上架。测试时用独立的 `--user-data-dir` 和 `--extensions-dir` 安装旧版，再从 GitHub 下载上方的包，核对 SHA-256 后安装。用相同目录运行 `--list-extensions --show-versions`，看 `lumidarin.agy-capsule-ide` 是否由 0.1.6 变为 0.2.0。此路径验证手动在线升级；插件不会把分支文件当成正式更新。
-2. **要让「检查 IDE 更新」发现新版**：在要发布的提交上创建并推送独立的 `ide-vX.Y.Z` 标签。用 [GitHub CLI](https://cli.github.com/manual/gh_release_create) 执行 `gh release create ide-vX.Y.Z dist/agy-capsule-ide-X.Y.Z.vsix --verify-tag --latest=false --notes-file release-notes.md`（替换实际版本并准备说明文件）。这是正式 Release，不是 draft 或 prerelease；`--latest=false` 留住桌面版 Latest。用带更新检查的旧版（从 0.2.0 起）发现更高版本，才算验证了插件内的更新提示。
+1. **分支预览（本次）**：源码与 VSIX 放在 `codex/ide-preview`；无需合并 main、创建 Release 或上架。测试时用独立的 `--user-data-dir` 和 `--extensions-dir` 安装旧版，再从 GitHub 下载上方的包，核对 SHA-256 后安装。用相同目录运行 `--list-extensions --show-versions`，看 `lumidarin.agy-capsule-ide` 是否由旧版本变为 0.2.1。此路径验证手动在线升级；插件不会把分支文件当成正式更新。
+2. **要让「检查插件更新」发现新版**：在要发布的提交上创建并推送独立的 `ide-vX.Y.Z` 标签。用 [GitHub CLI](https://cli.github.com/manual/gh_release_create) 执行 `gh release create ide-vX.Y.Z dist/agy-capsule-ide-X.Y.Z.vsix --verify-tag --latest=false --notes-file release-notes.md`（替换实际版本并准备说明文件）。这是正式 Release，不是 draft 或 prerelease；`--latest=false` 留住桌面版 Latest。用带更新检查的旧版（从 0.2.0 起）发现更高版本，才算验证了插件内的更新提示。
 3. **要从 IDE 扩展商店安装**：本机 Standalone 2.8.0 使用 Open VSX。按 [Open VSX 发布指南](https://github.com/eclipse-openvsx/openvsx/wiki/Publishing-Extensions) 完成发布者协议、确认对 `lumidarin` 命名空间的权限，使用发布令牌上传同一份 VSIX。保留扩展 ID，并在下一次发布时提高版本号。商店的在线安装／更新需在上架后单独验证。
