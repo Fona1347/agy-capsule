@@ -7,7 +7,8 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { UI_HTML } from '../agy-capsule/sidecars/agy_capsule/server.mjs';
-import { DEFAULT_SETTINGS } from '../agy-capsule/sidecars/agy_capsule/settings.mjs';
+import { createSettingsStore, DEFAULT_SETTINGS } from '../agy-capsule/sidecars/agy_capsule/settings.mjs';
+import { createLocalizationStore } from '../agy-capsule/sidecars/agy_capsule/localization.mjs';
 import { buildRuntimeBundle, startDeckInjector } from '../agy-capsule/sidecars/agy_capsule/deck_injector.mjs';
 import { readCloudConversationSnapshot } from '../agy-capsule/sidecars/agy_capsule/cloud_telemetry.mjs';
 import { createPresentation } from '../agy-capsule/sidecars/agy_capsule/ui.mjs';
@@ -903,7 +904,7 @@ await test('A newer injector takes over the same bundle and rejects an in-flight
   const page = await browser.newPage();
   await page.route('https://127.0.0.1:5351/', route => route.fulfill({ body: '<!doctype html>', contentType: 'text/html' }));
   await page.goto('https://127.0.0.1:5351/');
-  await page.setContent('<main data-media-drop-scope><div data-testid="agent-input-box"><div class="agy-composer-footer" style="display:flex;width:600px"><div style="display:flex;flex:1"><button>Gemini</button></div><button>Send</button></div></div></main>');
+  await page.setContent('<button id="settings"><span>Settings</span></button><main data-media-drop-scope><div data-testid="agent-input-box"><div class="agy-composer-footer" style="display:flex;width:600px"><div style="display:flex;flex:1"><button>Gemini</button></div><button>Send</button></div></div></main>');
 
   const directory = mkdtempSync(join(tmpdir(), 'agy-cdp-takeover-'));
   const portFile = join(directory, 'port');
@@ -939,11 +940,16 @@ await test('A newer injector takes over the same bundle and rejects an in-flight
     await release.promise;
     return data(200);
   }, { ...fixture, portFile, instanceTs: owner, onSuperseded: () => { superseded = true; } });
-  const newer = startDeckInjector(async () => data(800), { ...fixture, portFile, instanceTs: owner + 1 });
+  let translations = JSON.stringify([['Settings', '设置']]);
+  const newer = startDeckInjector(async () => data(800), {
+    ...fixture, portFile, instanceTs: owner + 1, getLocalizationPayload: () => translations,
+  });
   try {
     await old.tick();
     const pill = page.locator('#agy-capsule-host [data-k="pillCtx"]');
     assert.equal(await pill.textContent(), '10%');
+    const settings = page.locator('#settings');
+    assert.equal(await settings.textContent(), 'Settings');
     startedRace = true;
     const oldTick = old.tick();
     await waiting.promise;
@@ -954,6 +960,14 @@ await test('A newer injector takes over the same bundle and rejects an in-flight
     await oldTick;
     assert.equal(superseded, true);
     assert.equal(await pill.textContent(), '80%');
+    assert.equal(await settings.textContent(), '设置');
+    await page.locator('main').evaluate(node => node.remove());
+    translations = JSON.stringify([['Settings', '偏好']]);
+    await newer.tick();
+    assert.equal(await settings.textContent(), '偏好', 'settings-only renderer has no footer');
+    translations = null;
+    await newer.tick();
+    assert.equal(await settings.textContent(), 'Settings');
   } finally {
     release.resolve();
     await old.stop();
@@ -1362,4 +1376,130 @@ await test('Opt-in effort bar animates and switches models in place; default pic
   assert.equal(await flyout.isVisible(), true);
   await claude.click();
   assert.equal(await panel.isVisible(), false, 'the default picker still closes after selecting a model');
+});
+
+
+await test('Host localization protects private content and follows DOM updates, overrides and disposal', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.setContent(`
+    <button id="settings" aria-label="Settings"><span> Settings </span></button>
+    <label for="search">Search</label><input id="search" placeholder="Search" value="Settings">
+    <div data-testid="user-message-content"><h2>Settings</h2><button>Search</button></div>
+    <div class="prose"><h2>Settings</h2></div>
+    <div contenteditable="true"><button>Settings</button></div>
+    <button id="code"><code>Settings</code></button>
+    <button data-testid="project-header">Settings</button>
+    <button data-testid="model-selector-trigger">Settings</button>
+    <a href="/c/abc">Settings</a><div id="agy-capsule-host"><button>Settings</button></div>
+  `);
+  await page.evaluate(buildRuntimeBundle(owner).code);
+  const applyLocalization = entries => page.evaluate(({ owner, entries }) =>
+    globalThis.__agyCapsuleDeck.applyLocalization(owner, entries), { owner, entries });
+  const copy = () => page.locator('#settings span').textContent();
+  const settingsLabel = () => page.locator('#settings').getAttribute('aria-label');
+
+  assert.equal(await copy(), ' Settings ');
+  await applyLocalization([['Settings', '设置'], ['Search', '搜索']]);
+  assert.equal(await copy(), ' 设置 ');
+  assert.equal(await settingsLabel(), '设置');
+  assert.equal(await page.locator('#search').getAttribute('placeholder'), '搜索');
+  assert.equal(await page.locator('#search').inputValue(), 'Settings');
+
+  const protectedText = await page.locator('[data-testid="user-message-content"] > *, .prose h2, [contenteditable] button, #code code, [data-testid="project-header"], [data-testid="model-selector-trigger"], a, #agy-capsule-host button').allTextContents();
+  assert.deepEqual(protectedText, ['Settings', 'Search', 'Settings', 'Settings', 'Settings', 'Settings', 'Settings', 'Settings', 'Settings']);
+
+  await page.locator('#settings span').evaluate(el => { el.firstChild.data = 'Search'; });
+  assert.equal(await copy(), '搜索');
+  await page.locator('#settings').evaluate(el => { el.setAttribute('aria-label', 'New label'); });
+  await applyLocalization([['Settings', '设置'], ['Search', '查找'], ['New label', '<b>新文案</b>']]);
+  assert.equal(await copy(), '查找');
+  assert.equal(await settingsLabel(), '<b>新文案</b>');
+  assert.equal(await page.locator('#settings b').count(), 0);
+  await page.locator('#settings').evaluate(el => { el.setAttribute('translate', 'no'); });
+  assert.equal(await copy(), 'Search');
+  assert.equal(await settingsLabel(), 'New label');
+  await page.locator('#settings').evaluate(el => { el.removeAttribute('translate'); });
+  assert.equal(await copy(), '查找');
+  await applyLocalization(null);
+  assert.equal(await copy(), 'Search');
+  assert.equal(await settingsLabel(), 'New label');
+  assert.equal(await page.locator('#search').getAttribute('placeholder'), 'Search');
+
+  await applyLocalization([['Search', '查找']]);
+  await page.evaluate(() => globalThis.__agyCapsuleDeck.dispose());
+  assert.equal(await copy(), 'Search');
+});
+
+await test('Sidebar translation editor toggles, searches, overrides, adds, and resets entries', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 360, height: 900 } });
+  const directory = mkdtempSync(join(tmpdir(), 'agy-localization-panel-'));
+  const store = createLocalizationStore(join(directory, 'translations.sqlite'));
+  const settings = createSettingsStore(join(directory, 'settings.json'));
+  t.after(() => { store.close(); rmSync(directory, { recursive: true, force: true }); });
+  const errors = [];
+  let dictionaryRequests = 0;
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route('http://agy.test/**', route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/preload.js') return route.fulfill({ body: '' });
+    if (url.pathname === '/api/context') return route.fulfill({ json: { ...snapshot(), prefs: settings.read() } });
+    if (url.pathname === '/api/settings') return route.fulfill({ json: settings.update(route.request().postDataJSON()) });
+    if (url.pathname === '/api/localization') {
+      dictionaryRequests++;
+      assert.equal(route.request().headers()['x-sidecar-token'], 'panel-fixture');
+      return route.fulfill({ json: store.handle(route.request().postDataJSON()) });
+    }
+    return route.fulfill({ body: UI_HTML, contentType: 'text/html' });
+  });
+  await page.goto('http://agy.test/?token=panel-fixture');
+  await page.locator('#sidebar-tab-settings').click();
+  const toggle = page.locator('#setting-localize-host');
+  assert.equal(await toggle.isChecked(), false);
+  assert.equal(dictionaryRequests, 0);
+  await Promise.all([
+    page.waitForResponse(response => response.url().endsWith('/api/settings')),
+    toggle.check(),
+  ]);
+  assert.equal(settings.read().localizeHost, true);
+  assert.equal(dictionaryRequests, 0);
+
+  await page.locator('#localization-editor summary').click();
+  const search = page.locator('[data-translation-search]');
+  const source = page.locator('[data-translation-source]');
+  const target = page.locator('[data-translation-target]');
+  const save = page.locator('[data-translation-save]');
+  const reset = page.locator('[data-translation-reset]');
+  const saved = () => page.getByRole('status').filter({ hasText: '已保存。' }).waitFor();
+  await search.fill('Settings');
+  await page.locator('.localization-entry').filter({ has: page.getByText('Settings', { exact: true }) }).click();
+  assert.equal(await source.inputValue(), 'Settings');
+  assert.equal(await target.inputValue(), '设置');
+  await target.fill('偏好设置');
+  await save.click();
+  await saved();
+  assert.equal(new Map(JSON.parse(store.getPayload())).get('Settings'), '偏好设置');
+  await reset.click();
+  await saved();
+  assert.equal(await target.inputValue(), '设置');
+
+  await page.locator('[data-translation-add]').click();
+  await source.fill('A custom label');
+  await target.fill('自定义文案');
+  await save.click();
+  await saved();
+  await search.fill('自定义文案');
+  await page.locator('[data-translation-custom]').check();
+  assert.equal(await page.locator('.localization-entry').textContent(), 'A custom label自定义文案');
+  await toggle.uncheck();
+  await page.waitForFunction(() => !document.querySelector('#setting-localize-host').disabled);
+  assert.equal(settings.read().localizeHost, false);
+  assert.equal(new Map(JSON.parse(store.getPayload())).get('A custom label'), '自定义文案');
+  await reset.click();
+  await saved();
+  assert.equal(new Map(JSON.parse(store.getPayload())).has('A custom label'), false);
+  assert.deepEqual(errors, []);
 });

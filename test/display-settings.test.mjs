@@ -249,7 +249,7 @@ test('sidebar settings use flat dividers, same-row appearance blocks, refined ca
   assert.ok(UI_HTML.includes('id="help-language-scope"') && UI_HTML.includes('id="help-notify-cdp-restart"') && UI_HTML.includes('id="help-speed-pair"') && UI_HTML.includes('id="help-request-metrics"') && UI_HTML.includes('id="help-turn-metrics"') && UI_HTML.includes('id="help-usage-scope"'));
   assert.ok(!UI_HTML.includes('class="settings-note"'));
   assert.match(settingsHtml, /data-setting-card="language"[\s\S]*?class="setting-help-dot"[\s\S]*?id="help-language-scope"[^>]*data-i18n="languageScopeNote"/);
-  assert.equal((settingsHtml.match(/class="setting-help-dot"/g) || []).length, 8, 'includes the native model capsule help dot');
+  assert.equal((settingsHtml.match(/class="setting-help-dot"/g) || []).length, 9, 'includes the native model capsule and host localization help dots');
   assert.ok(UI_HTML.includes('data-preview-group="turn"') && !UI_HTML.includes('data-preview-group="request"'));
   assert.equal(ui.dictionaries.en.showRequestMetrics, 'Last request');
   assert.equal(ui.dictionaries.en.turnMetrics, 'Last turn');
@@ -448,7 +448,7 @@ test('failure panel shares matched height and quota-style placement; countdown s
 
 test('help dots, disabled option controls, turn preview short labels, and convId validation stay consistent', async () => {
   const settingsHtml = UI_HTML.slice(UI_HTML.indexOf('<section class="settings'));
-  assert.equal((settingsHtml.match(/<span class="setting-help-dot" aria-hidden="true">\?<\/span>/g) || []).length, 8);
+  assert.equal((settingsHtml.match(/<span class="setting-help-dot" aria-hidden="true">\?<\/span>/g) || []).length, 9);
   assert.doesNotMatch(settingsHtml, /<button[^>]*setting-help-dot/);
   assert.doesNotMatch(UI_HTML, /\.setting-help-dot\s*\{[^}]*margin-left:\s*auto/);
   assert.match(UI_HTML, /\.metric-setting > \.setting-head \{ justify-content: flex-start; \}/);

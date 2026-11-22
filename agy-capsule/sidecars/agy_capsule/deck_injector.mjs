@@ -9,6 +9,7 @@ import { createMotionThemes, motionThemes } from './motion_themes.mjs';
 import { EFFORT_BAR_CSS, effortEffects, mountEffortBar, mountOrchestratorSwitch } from './effort_bar.mjs';
 import { createUpstreamEffort } from './effort_upstream.mjs';
 import { readCloudTrajectory } from './cloud_telemetry.mjs';
+import { startHostLocalization } from './localization_runtime.mjs';
 import { createPresentation, getPresentationScript } from './ui.mjs';
 
 const { escapeHtml, appearance, cacheView, contextBreakdown, quotaView, makeRingSvg } = createPresentation();
@@ -1617,6 +1618,7 @@ function installRuntime(owner, hash) {
   let dataId = '';
   let mainView = null;
   let mainObserver;
+  let stopLocalization;
   let disposed = false;
   const children = new Map();
   const childHosts = new Map();
@@ -1698,13 +1700,21 @@ function installRuntime(owner, hash) {
       }
       let effortSync = null;
       try { effortSync = effortEffects().readPendingPatch(); } catch {}
-      return { owner, hash, path: location.pathname, hasFooter: !!footer, modelConversationId, modelFamilies, effortSync,
+      return { owner, hash, path: location.pathname, localizationActive: !!stopLocalization, hasFooter: !!footer, modelConversationId, modelFamilies, effortSync,
         conversationId, loadedMain: !!data, hasKnownChildAnchor, subagentIds: [...ids], loadedSubagentIds: [...children.keys()] };
     },
     ackEffortSync(caller, rev) {
       if (caller < owner) return 'superseded';
       if (caller !== owner || disposed) return false;
       try { effortEffects().ackPendingPatch(rev); } catch {}
+      return true;
+    },
+    applyLocalization(caller, translations) {
+      if (caller < owner) return 'superseded';
+      if (caller !== owner || disposed) return false;
+      stopLocalization?.();
+      stopLocalization = undefined;
+      if (translations) stopLocalization = startHostLocalization(translations);
       return true;
     },
     readCloudTelemetry(caller, path, convId) {
@@ -1737,6 +1747,7 @@ function installRuntime(owner, hash) {
       disposed = true;
       clearInterval(timer);
       mainObserver?.disconnect();
+      stopLocalization?.();
       for (const [anchor, entry] of childHosts) removeChild(anchor, entry);
       if (globalThis.__agyCapsuleDeck === api) {
         window.__agyCapsuleCleanup?.();
@@ -1749,7 +1760,7 @@ function installRuntime(owner, hash) {
 }
 
 export function buildRuntimeBundle(owner = INSTANCE_TS) {
-  const functions = [toView, findFooterLeft, conversationIdOf, findSubagentAnchors, resolveInheritedLabel, readPickerState, createMotionThemes, motionThemes, createUpstreamEffort, effortEffects, mountEffortBar, mountOrchestratorSwitch, syncModelPicker, readCloudTrajectory, pageMount, installRuntime].map(fn => fn.toString()).join('\n');
+  const functions = [toView, findFooterLeft, conversationIdOf, findSubagentAnchors, resolveInheritedLabel, readPickerState, createMotionThemes, motionThemes, createUpstreamEffort, effortEffects, mountEffortBar, mountOrchestratorSwitch, syncModelPicker, readCloudTrajectory, startHostLocalization, pageMount, installRuntime].map(fn => fn.toString()).join('\n');
   const effortBar = `const EFFORT_BAR_CSS=${JSON.stringify(EFFORT_BAR_CSS)};`;
   const source = getPresentationScript() + '\n' + effortBar + '\n' + functions;
   const hash = createHash('sha256').update(source).digest('hex').slice(0, 16);
@@ -1825,7 +1836,7 @@ export function startDeckInjector(inspect, options = {}) {
   };
   const connect = async target => {
     const ws = new WebSocket(target.webSocketDebuggerUrl);
-    const entry = { ws, pending: new Map(), nextId: 1, lastPayload: '', lastPath: '', origin: new URL(target.url).origin };
+    const entry = { ws, pending: new Map(), nextId: 1, lastPayload: '', lastPath: '', localizationPayload: 'null', origin: new URL(target.url).origin };
     await new Promise((resolve, reject) => {
       const fail = message => { clearTimeout(timer); retire(entry, target.id); reject(new Error(message)); };
       const timer = setTimeout(() => fail('ws timeout'), 3000);
@@ -1919,6 +1930,11 @@ export function startDeckInjector(inspect, options = {}) {
     try {
       const list = await pages();
       let noAnchor = 0, failed = 0;
+      let localizationPayload;
+      if (list.length) {
+        try { localizationPayload = options.getLocalizationPayload?.() ?? 'null'; }
+        catch { /* Retry the translation store independently of footer metrics. */ }
+      }
       for (const target of list) {
         if (stopped) break;
         try {
@@ -1933,11 +1949,19 @@ export function startDeckInjector(inspect, options = {}) {
             if (installed === 'superseded') return await supersede();
             if (!installed || stopped) { failed++; continue; }
             entry.lastPayload = '';
+            entry.localizationPayload = 'null';
             entry.lastChildPayloads = new Map();
             state = await run(`globalThis.__agyCapsuleDeck?.readState(${owner})??null`);
           }
           if (state === 'superseded') return await supersede();
           if (state?.owner !== owner || !state.path) { failed++; continue; }
+          if (localizationPayload !== undefined && (entry.localizationPayload !== localizationPayload ||
+              (localizationPayload === 'null' && state.localizationActive === true))) {
+            const applied = await run(`globalThis.__agyCapsuleDeck?.applyLocalization(${owner},${localizationPayload})`);
+            if (applied === 'superseded') return await supersede();
+            if (stopped) break;
+            if (applied === true) entry.localizationPayload = localizationPayload;
+          }
           if (state.effortSync?.patch && typeof state.effortSync.patch === 'object') {
             try { options.onEffortSettingsPatch?.(state.effortSync.patch); } catch {}
             const acked = await run(`globalThis.__agyCapsuleDeck?.ackEffortSync(${owner},${Number(state.effortSync.rev) || 0})??false`);

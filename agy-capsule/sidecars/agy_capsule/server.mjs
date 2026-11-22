@@ -22,12 +22,15 @@ import { createMotionThemes } from './motion_themes.mjs';
 import { CURRENT_VERSION, VERSION_ROUTE, createVersionChecker } from './version_check.mjs';
 import { createVersionPanel } from './version_ui.mjs';
 import { createPluginUpdater, UPDATE_ROUTE } from './version_update.mjs';
+import { createLocalizationStore, LOCALIZATION_ROUTE } from './localization.mjs';
+import { createLocalizationEditor, LOCALIZATION_EDITOR_HTML } from './localization_ui.mjs';
 
 const settingsStore = createSettingsStore();
+const localizationStore = createLocalizationStore();
 const checkVersion = createVersionChecker({ getPrefs: () => settingsStore.read() });
 const updatePlugin = createPluginUpdater({ sidecarDirectory: dirname(fileURLToPath(import.meta.url)), checkVersion });
 const cloudTelemetryStore = createCloudTelemetryStore();
-const PANEL_VERSION = 154;
+const PANEL_VERSION = 155;
 const presentation = createPresentation();
 export function getNotifyText(shortcutState, prefs) {
   const t = presentation.dictionaries[prefs?.settingsLanguage] || presentation.dictionaries['zh-CN'];
@@ -1532,6 +1535,29 @@ const UI_HTML = `<!DOCTYPE html>
     .pv-nebula i:nth-child(5) { top: 68%; left: 64%; width: 22%; height: 1.5px; }
     .setting-model-card:not([data-effort-bar="true"]) .pv-effort-bar { display: none; }
     .setting-pair-item > .setting-head { display: inline-flex; align-items: center; gap: 6px; }
+    .localization-editor > summary { width: fit-content; cursor: pointer; font-size: 12px; }
+    .localization-controls, .localization-fields { display: grid; gap: 8px; min-width: 0; }
+    .localization-controls { margin-top: 8px; }
+    .localization-controls label { display: grid; gap: 4px; font-size: 12px; }
+    .localization-controls .localization-filter { display: flex; align-items: center; }
+    .localization-controls input[type="search"], .localization-controls textarea {
+      width: 100%; min-width: 0; border: 1px solid var(--border, rgba(142,142,147,.35));
+      border-radius: 5px; padding: 5px 7px; background: transparent; color: inherit; font: inherit;
+    }
+    .localization-controls textarea { resize: vertical; }
+    .localization-list, .localization-actions { display: flex; gap: 4px; }
+    .localization-list { flex-direction: column; }
+    .localization-actions { align-items: center; flex-wrap: wrap; font-size: 12px; }
+    .localization-add { margin-left: auto; }
+    .localization-entry {
+      display: grid; gap: 2px; padding: 5px 7px; text-align: left; overflow-wrap: anywhere;
+      border: 1px solid var(--border, rgba(142,142,147,.22)); border-radius: 5px;
+      background: transparent; color: inherit; font: inherit; cursor: pointer;
+    }
+    .localization-entry:hover { background: color-mix(in srgb, var(--foreground, #fff) 7%, transparent); }
+    .localization-entry span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+    .localization-entry span + span, .localization-status { color: var(--muted-foreground, #8e8e93); font-size: 12px; }
+    .localization-status:empty { display: none; }
     .settings-fx { container-type: inline-size; container-name: fx-panel; }
     .settings-fx > .settings-scope:first-child { margin-top: 0; padding-top: 2px; border-top: 0; }
     .fx-native-scope > .fx-toggle-head input[type="checkbox"] { margin-inline-start: auto; }
@@ -1744,6 +1770,8 @@ const UI_HTML = `<!DOCTYPE html>
     ])}
 
     <div class="settings-scope" data-settings-scope="features" data-i18n="featuresSection"></div>
+    ${renderCheckCard({ id: 'setting-localize-host', key: 'localizeHost', tip: 'localizeHostHelp' })}
+    ${LOCALIZATION_EDITOR_HTML}
     ${renderCheckCard({ id: 'setting-highlight-active-model', key: 'highlightActiveModel', checked: false })}
     ${renderCheckCard({ id: 'setting-hide-unavailable-quota', key: 'hideUnavailableQuota', checked: DEFAULT_SETTINGS.hideUnavailableQuota })}
     <div class="setting-card setting-threshold-card" data-setting-card="showCacheWarnings" data-checked="${DEFAULT_SETTINGS.showCacheWarnings}">
@@ -1992,6 +2020,10 @@ const UI_HTML = `<!DOCTYPE html>
     let prefsSig = JSON.stringify(prefs);
     let labels = presentation.apply(document.body, prefs);
     let settingsLabels = presentation.dictionaries[prefs.settingsLanguage];
+    const localizationEditor = (${createLocalizationEditor.toString()})(
+      document.getElementById('localization-editor'),
+      async data => (await postApi('${LOCALIZATION_ROUTE}', data, AbortSignal.timeout(6000))).json()
+    );
     const versionPanel = (${createVersionPanel.toString()})(
       document.getElementById('version-panel'),
       async mode => {
@@ -2641,6 +2673,7 @@ const UI_HTML = `<!DOCTYPE html>
       labels = presentation.apply(document.body, prefs);
       settingsLabels = presentation.dictionaries[prefs.settingsLanguage] || presentation.dictionaries['zh-CN'];
       versionPanel.sync(prefs, settingsLabels);
+      localizationEditor.sync(settingsLabels);
       sidebarTabs.lang = prefs.settingsLanguage;
       sidebarTabs.setAttribute('aria-label', settingsLabels.sidebarNavigation);
       document.getElementById('sidebar-tab-stats').textContent = settingsLabels.sidebarStats;
@@ -3202,6 +3235,7 @@ const UI_HTML = `<!DOCTYPE html>
     function updateControlState() {
       const busy = savingSettings;
       for (const control of document.querySelectorAll('.settings select, .settings input, .settings button:not(.setting-help-dot):not([data-fx-preview])')) {
+        if (control.closest('#localization-editor')) continue;
         const optionCard = control.closest('.setting-option-card');
         const thresholdCard = control.closest('.setting-threshold-card');
         const detailPop = control.closest('.pv-detail-pop');
@@ -3261,6 +3295,7 @@ export async function startPanel(loadSdk = () => import('sidecar_sdk'), env = pr
   }, 'POST');
   app.api('/api/usage', (data) => inspectUsage(settingsStore.read(), data?.conversationId ?? app.config?.conversationId ?? ''), 'POST');
   app.api('/api/settings', (data) => settingsStore.update(data), 'POST');
+  app.api(LOCALIZATION_ROUTE, data => localizationStore.handle(data), 'POST');
   app.api(VERSION_ROUTE, data => checkVersion(data?.mode), 'POST');
   app.api(UPDATE_ROUTE, data => updatePlugin(data?.version), 'POST');
   app.api('/api/fix-cdp-shortcut', () => cdpNotice.fixShortcuts(), 'POST');
@@ -3276,6 +3311,7 @@ if (isMain && (process.env.ANTIGRAVITY_LS_ADDRESS || process.env.ANTIGRAVITY_SID
     onCloudTelemetry: rememberCloudTelemetry,
     onStatus: state => cdpNotice.observe(state),
     onEffortSettingsPatch: patch => settingsStore.update(patch),
+    getLocalizationPayload: () => settingsStore.read().localizeHost ? localizationStore.getPayload() : null,
   });
   let stopping = false;
   const shutdown = async (reason) => {

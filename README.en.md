@@ -76,7 +76,9 @@ An optional section at the bottom of the sidebar’s Statistics page.
 
 ☑ **Settings language**: English, Simplified Chinese, Traditional Chinese. The language of the settings page.
 
-☑ **Display language**: English, Simplified Chinese, Traditional Chinese. The language of the panels. (Both language settings only affect agy-capsule's own interface and don't translate Antigravity itself.)
+☑ **Display language**: English, Simplified Chinese, Traditional Chinese. The language of the agy-capsule panels.
+
+☑ **Chinese interface (Antigravity)**: Off by default, under Settings → Features. It shares the footer capsule's debugging connection and matches supported desktop buttons, menus, and settings labels by their original text. Open **Manage translations** to search, edit, add, or reset entries. Custom entries are stored locally, and changes apply while Antigravity is running. Coverage is limited to connected desktop web views. The host handles native system menus.
 
 ☑ **Panel height**: Natural height sizes each panel to its content; matched height gives every panel the same height.
 
